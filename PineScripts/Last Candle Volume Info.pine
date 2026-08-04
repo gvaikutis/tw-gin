@@ -1,0 +1,169 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © gvaikutis
+
+//@version=6
+indicator("Liquidity Map & Draw on Liquidity", overlay=true, max_lines_count=500)
+
+leftBars = input.int(5, "Pivot left bars", minval=1, group="Liquidity Detection")
+rightBars = input.int(5, "Pivot right bars", minval=1, group="Liquidity Detection")
+tolerancePercent = input.float(0.05, "Equal level tolerance (%)", minval=0.001, step=0.01, group="Liquidity Detection")
+volumeLength = input.int(20, "Volume SMA length", minval=1, group="Liquidity Strength")
+highVolumeMultiplier = input.float(1.0, "High volume multiplier", minval=0.1, step=0.1, group="Liquidity Strength")
+mitigationMode = input.string("Wick Sweep", "Mitigation", options=["Wick Sweep", "Close Breach"], group="Liquidity Cleansing")
+keepMitigated = input.bool(true, "Keep mitigated levels", group="Liquidity Cleansing")
+maxZones = input.int(100, "Maximum stored zones", minval=10, maxval=250, group="Liquidity Map")
+panelPosition = input.string("Bottom Right", "Panel position", options=["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group="Dashboard")
+bslColor = input.color(#17dfad, "BSL color", group="Liquidity Map", inline="colors")
+sslColor = input.color(#dd326b, "SSL color", group="Liquidity Map", inline="colors")
+
+type LiquidityZone
+    float level
+    bool isBsl
+    int touches
+    bool highVolume
+    bool active
+    line lineRef
+
+var array<LiquidityZone> zones = array.new<LiquidityZone>()
+var float activeTarget = na
+var int targetDirection = 0
+var bool targetActive = false
+var int targetOriginBar = na
+var string targetOriginSignal = ""
+var int completedOriginBar = na
+
+toleranceAt(float price) => price * tolerancePercent / 100.0
+
+zonePriority(LiquidityZone zone) =>
+    (zone.touches > 1 ? 1000000 : 0) + (zone.highVolume ? 10000 : 0) + zone.touches
+
+zoneColor(LiquidityZone zone) => zone.isBsl ? bslColor : sslColor
+
+refreshZoneStyle(LiquidityZone zone) =>
+    int lineWidth = zone.touches > 1 ? 3 : zone.highVolume ? 2 : 1
+    int transparency = zone.touches > 1 ? 0 : zone.highVolume ? 20 : 45
+    line.set_color(zone.lineRef, color.new(zoneColor(zone), transparency))
+    line.set_width(zone.lineRef, lineWidth)
+    line.set_style(zone.lineRef, zone.touches > 1 ? line.style_solid : line.style_dotted)
+
+addOrStrengthenZone(float pivotPrice, bool isBsl, bool pivotHighVolume) =>
+    bool matched = false
+    int zoneCount = array.size(zones)
+    if zoneCount > 0
+        for zoneIndex = 0 to zoneCount - 1
+            LiquidityZone zone = array.get(zones, zoneIndex)
+            if zone.active and zone.isBsl == isBsl and math.abs(zone.level - pivotPrice) <= toleranceAt(pivotPrice)
+                zone.touches += 1
+                zone.highVolume := zone.highVolume or pivotHighVolume
+                refreshZoneStyle(zone)
+                matched := true
+                break
+    if not matched
+        color newZoneColor = isBsl ? bslColor : sslColor
+        line newLine = line.new(bar_index - rightBars, pivotPrice, bar_index, pivotPrice, xloc=xloc.bar_index, extend=extend.right, color=color.new(newZoneColor, pivotHighVolume ? 20 : 45), width=pivotHighVolume ? 2 : 1, style=line.style_dotted)
+        array.push(zones, LiquidityZone.new(pivotPrice, isBsl, 1, pivotHighVolume, true, newLine))
+    if array.size(zones) > maxZones
+        LiquidityZone oldestZone = array.shift(zones)
+        line.delete(oldestZone.lineRef)
+
+float volumeSma = ta.sma(volume, volumeLength)
+float pivotHigh = ta.pivothigh(high, leftBars, rightBars)
+float pivotLow = ta.pivotlow(low, leftBars, rightBars)
+
+// Complete an existing forecast before a new sweep can replace it.
+bool targetHit = targetActive and ((targetDirection == 1 and high >= activeTarget) or (targetDirection == -1 and low <= activeTarget))
+if targetHit
+    completedOriginBar := targetOriginBar
+    targetActive := false
+    activeTarget := na
+    targetDirection := 0
+
+bool bslSwept = false
+bool sslSwept = false
+int zoneCount = array.size(zones)
+if zoneCount > 0
+    for zoneIndex = 0 to zoneCount - 1
+        LiquidityZone zone = array.get(zones, zoneIndex)
+        bool breached = mitigationMode == "Wick Sweep" ? (zone.isBsl ? high >= zone.level : low <= zone.level) : (zone.isBsl ? close > zone.level : close < zone.level)
+        if zone.active and breached
+            zone.active := false
+            bslSwept := bslSwept or zone.isBsl
+            sslSwept := sslSwept or not zone.isBsl
+            if keepMitigated
+                line.set_extend(zone.lineRef, extend.none)
+                line.set_x2(zone.lineRef, bar_index)
+                line.set_style(zone.lineRef, line.style_dashed)
+                line.set_color(zone.lineRef, color.new(color.gray, 55))
+            else
+                line.delete(zone.lineRef)
+
+if not na(pivotHigh)
+    addOrStrengthenZone(pivotHigh, true, volume[rightBars] > volumeSma[rightBars] * highVolumeMultiplier)
+if not na(pivotLow)
+    addOrStrengthenZone(pivotLow, false, volume[rightBars] > volumeSma[rightBars] * highVolumeMultiplier)
+
+// Equal levels outrank high-volume levels, which outrank normal pivots; distance resolves ties.
+float forecastTarget = na
+int bestPriority = -1
+float bestDistance = na
+bool bullishSweep = sslSwept and not bslSwept
+bool bearishSweep = bslSwept and not sslSwept
+bool needsUpsideTarget = bullishSweep
+bool needsDownsideTarget = bearishSweep
+zoneCount := array.size(zones)
+if (needsUpsideTarget or needsDownsideTarget) and zoneCount > 0
+    for zoneIndex = 0 to zoneCount - 1
+        LiquidityZone zone = array.get(zones, zoneIndex)
+        bool correctSide = needsUpsideTarget ? zone.isBsl and zone.level > close : not zone.isBsl and zone.level < close
+        if zone.active and correctSide
+            int priority = zonePriority(zone)
+            float distance = math.abs(zone.level - close)
+            if priority > bestPriority or (priority == bestPriority and (na(bestDistance) or distance < bestDistance))
+                bestPriority := priority
+                bestDistance := distance
+                forecastTarget := zone.level
+
+string barSignal = ""
+if needsUpsideTarget
+    barSignal := "SWEEP (Bull)"
+    if not na(forecastTarget)
+        barSignal += " -> TGT: " + str.tostring(forecastTarget, format.mintick)
+        activeTarget := forecastTarget
+        targetDirection := 1
+        targetActive := true
+        targetOriginBar := bar_index
+        targetOriginSignal := barSignal
+if needsDownsideTarget
+    barSignal := "SWEEP (Bear)"
+    if not na(forecastTarget)
+        barSignal += " -> TGT: " + str.tostring(forecastTarget, format.mintick)
+        activeTarget := forecastTarget
+        targetDirection := -1
+        targetActive := true
+        targetOriginBar := bar_index
+        targetOriginSignal := barSignal
+
+panelAnchor = panelPosition == "Top Right" ? position.top_right : panelPosition == "Top Left" ? position.top_left : panelPosition == "Bottom Right" ? position.bottom_right : position.bottom_left
+var table infoPanel = table.new(panelAnchor, 5, 11, frame_color=color.new(chart.fg_color, 60), frame_width=1, border_color=color.new(chart.fg_color, 80), border_width=1)
+if barstate.islast
+    table.cell(infoPanel, 0, 0, "Candle", text_color=chart.fg_color, text_size=size.small, bgcolor=color.new(color.black, 15))
+    table.cell(infoPanel, 1, 0, "Close", text_color=chart.fg_color, text_size=size.small, bgcolor=color.new(color.black, 15))
+    table.cell(infoPanel, 2, 0, "BSL", text_color=bslColor, text_size=size.small, bgcolor=color.new(color.black, 15))
+    table.cell(infoPanel, 3, 0, "SSL", text_color=sslColor, text_size=size.small, bgcolor=color.new(color.black, 15))
+    table.cell(infoPanel, 4, 0, "Signal", text_color=chart.fg_color, text_size=size.small, bgcolor=color.new(color.black, 15), width=30)
+    for candleIndex = 0 to 9
+        int row = candleIndex + 1
+        bool hasCandle = not na(close[candleIndex])
+        int candleBar = bar_index - candleIndex
+        string signalText = hasCandle ? barSignal[candleIndex] : ""
+        bool isTargetHitRow = candleBar == completedOriginBar
+        if isTargetHitRow
+            signalText := targetOriginSignal[candleIndex] + " -> TARGET HIT"
+        color signalBackground = isTargetHitRow ? color.new(color.blue, 20) : signalText == "" ? color.new(color.black, 25) : str.contains(signalText, "Bull") ? color.new(bslColor, 65) : color.new(sslColor, 65)
+        string bslState = bslSwept[candleIndex] ? "TAKEN" : ""
+        string sslState = sslSwept[candleIndex] ? "TAKEN" : ""
+        table.cell(infoPanel, 0, row, hasCandle ? "C" + str.tostring(candleIndex + 1) : "-", text_color=chart.fg_color, text_size=size.small, bgcolor=color.new(color.black, 25))
+        table.cell(infoPanel, 1, row, hasCandle ? str.tostring(close[candleIndex], format.mintick) : "-", text_color=chart.fg_color, text_size=size.small, bgcolor=color.new(color.black, 25))
+        table.cell(infoPanel, 2, row, bslState, text_color=color.white, text_size=size.small, bgcolor=bslState != "" ? color.new(sslColor, 25) : color.new(color.black, 25))
+        table.cell(infoPanel, 3, row, sslState, text_color=color.white, text_size=size.small, bgcolor=sslState != "" ? color.new(bslColor, 25) : color.new(color.black, 25))
+        table.cell(infoPanel, 4, row, signalText, text_color=chart.fg_color, text_size=size.small, bgcolor=signalBackground, width=30)
