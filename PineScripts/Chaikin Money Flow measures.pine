@@ -1,0 +1,47 @@
+//@version=5
+indicator(title='Chaikin Money Flow')
+
+// Developed by Marc Chaikin, Chaikin Money Flow measures the amount of Money Flow Volume over a specific period.
+// Money Flow Volume forms the basis for the Accumulation Distribution Line. Instead of a cumulative total of
+// Money Flow Volume, Chaikin Money Flow simply sums Money Flow Volume for a specific look-back period, typically
+// 20 or 21 days. The resulting indicator fluctuates above/below the zero line just like an oscillator. Chartists
+// weigh the balance of buying or selling pressure with the absolute level of Chaikin Money Flow. Chartists can
+// also look for crosses above or below the zero line to identify changes on money flow. 
+
+// The Accumulation Distribution Line was developed by Marc Chaikin to measure the cumulative flow of money into and
+// out of an index or security. The Accumulation/Distribution Line can be compared to the OBV (On Balance Volume),
+// which adds or subtracts volume depending on the closing price. Marc Chaikin chose a different approach, instead
+// of relying on the closing price, he used CLV (Close Location Value).
+
+length = input.int(title='CMF Length', defval=20, minval=1)
+smalen = input.int(title='SMA Length', defval=5, minval=1)
+showma = input(title='Show SMA', defval=false)
+
+clv = high == low ? 0 : (close - low - (high - close)) / (high - low)
+mfv = clv * nz(volume, 1)
+
+//adLine = cum(mfv) --Chaikin's Accum/Distrib Line
+volumeSum = math.sum(nz(volume, 1), length)
+moneyFlowVolumeSum = math.sum(mfv, length)
+cmfLine = volumeSum != 0 ? moneyFlowVolumeSum / volumeSum : 0
+smaLine = showma ? ta.sma(cmfLine, smalen) : na
+
+var table cmfTable = table.new(position.top_right, 2, 3, frame_color=color.gray, frame_width=1, border_color=color.gray, border_width=1)
+if barstate.islast
+	cmfColor = cmfLine >= 0 ? color.green : color.red
+	cmfText = str.tostring(cmfLine, '#.####')
+	smaText = showma ? str.tostring(smaLine, '#.####') : 'Off'
+	table.cell(cmfTable, 0, 0, 'CMF INFO', text_color=chart.fg_color, text_size=size.small, bgcolor=color.new(color.black, 15))
+	table.cell(cmfTable, 1, 0, '', text_color=chart.fg_color, text_size=size.small, bgcolor=color.new(color.black, 15))
+	table.cell(cmfTable, 0, 1, 'CMF (' + str.tostring(length) + ')', text_color=cmfColor, text_size=size.small, bgcolor=color.new(color.black, 25))
+	table.cell(cmfTable, 1, 1, cmfText, text_color=cmfColor, text_size=size.small, bgcolor=color.new(color.black, 25))
+	table.cell(cmfTable, 0, 2, 'SMA (' + str.tostring(smalen) + ')', text_color=chart.fg_color, text_size=size.small, bgcolor=color.new(color.black, 25))
+	table.cell(cmfTable, 1, 2, smaText, text_color=chart.fg_color, text_size=size.small, bgcolor=color.new(color.black, 25))
+
+cmfPlot = plot(cmfLine, 'Money Flow', color.black, linewidth=2)
+smaPlot = plot(smaLine, 'Moving Avg', color.black, linewidth=1)
+midLine = hline(0, 'Mid Line', color.black, linewidth=1, linestyle=hline.style_solid, editable=false)
+zeroPlot = plot(0, color=na, display=display.none, editable=false)
+
+fill(cmfPlot, zeroPlot, 0.0001, 0.0, color.new(color.green, 25), color.new(color.green, 100))
+fill(cmfPlot, zeroPlot, 0.0, -0.0001, color.new(color.red, 100), color.new(color.red, 25))
