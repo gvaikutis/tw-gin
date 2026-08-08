@@ -20,6 +20,7 @@ momentumCmfThreshold = input.float(0.05, "Bullish momentum CMF threshold", minva
 useTrendMomentumFilter = input.bool(true, "Block counter-trend bear sweeps", group="Trend / Momentum Filter")
 minorStructureBars = input.int(3, "Minor structure pivot bars", minval=1, group="CHoCH Continuation")
 showChochLabels = input.bool(true, "Show CHoCH labels", group="CHoCH Continuation")
+h4SweepTimeframe = input.timeframe("240", "H4 sweep timeframe", group="H4 Reversal Statistics")
 cmfLength = input.int(20, "CMF length", minval=1, group="Candle Volume Dashboard")
 whaleLength = input.int(20, "Volume average length", minval=1, group="Candle Volume Dashboard")
 whaleMultiplier = input.float(2.0, "Volume deviation multiplier", minval=0.1, step=0.1, group="Candle Volume Dashboard")
@@ -29,7 +30,6 @@ obMergeAtrMultiplier = input.float(0.75, "OB merge ATR multiplier", minval=0.01,
 mitigationMode = input.string("Wick Sweep", "Mitigation", options=["Wick Sweep", "Close Breach"], group="Liquidity Cleansing")
 keepMitigated = input.bool(true, "Keep mitigated levels", group="Liquidity Cleansing")
 maxZones = input.int(100, "Maximum stored zones", minval=10, maxval=250, group="Liquidity Map")
-panelPosition = input.string("Bottom Right", "Panel position", options=["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group="Dashboard")
 bslColor = input.color(#17dfad, "BSL color", group="Liquidity Map", inline="colors")
 sslColor = input.color(#dd326b, "SSL color", group="Liquidity Map", inline="colors")
 
@@ -71,6 +71,7 @@ var int obReachedOriginBar = na
 var float targetInvalidationLevel = na
 var line targetLine = na
 var float lastMinorLow = na
+var float lastMinorHigh = na
 var float lastStructuralLow = na
 var float lastStructuralHigh = na
 var float bullishObTop = na
@@ -89,6 +90,12 @@ var array<int> supersededTargetBars = array.new_int()
 var array<string> supersededTargetOutcomes = array.new_string()
 var float lastStructureLabelPrice = na
 var int lastStructureLabelBar = na
+var bool isTrackingReversal = false
+var bool trackingHighSweep = false
+var float maxPenetration = 0.0
+var float[] historicalSweepsHigh = array.new_float()
+var float[] historicalSweepsLow = array.new_float()
+color statCorridorColor = #ff9800
 
 float atrValue = ta.atr(atrLength)
 
@@ -193,11 +200,83 @@ float volumeSma = ta.sma(volume, volumeLength)
 float pivotHigh = ta.pivothigh(high, leftBars, rightBars)
 float pivotLow = ta.pivotlow(low, leftBars, rightBars)
 float minorPivotLow = ta.pivotlow(low, minorStructureBars, minorStructureBars)
+float minorPivotHigh = ta.pivothigh(high, minorStructureBars, minorStructureBars)
 if not na(minorPivotLow)
     lastMinorLow := minorPivotLow
-bool bearishChoch = not na(lastMinorLow) and low < lastMinorLow and low[1] >= lastMinorLow
+if not na(minorPivotHigh)
+    lastMinorHigh := minorPivotHigh
+bool bearishChoch = not na(lastMinorLow) and close < lastMinorLow and close[1] >= lastMinorLow
 if bearishChoch
     lastMinorLow := na
+bool bullishChoch = not na(lastMinorHigh) and close > lastMinorHigh and close[1] <= lastMinorHigh
+if bullishChoch
+    lastMinorHigh := na
+
+// Confirmed H4 pivots lock a series value per bar; past values never change when a new pivot forms.
+float confirmedH4PivotHigh = request.security(syminfo.tickerid, h4SweepTimeframe, ta.pivothigh(high, leftBars, rightBars), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+float confirmedH4PivotLow = request.security(syminfo.tickerid, h4SweepTimeframe, ta.pivotlow(low, leftBars, rightBars), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+bool freshH4PivotHigh = not na(confirmedH4PivotHigh) and na(confirmedH4PivotHigh[1])
+bool freshH4PivotLow = not na(confirmedH4PivotLow) and na(confirmedH4PivotLow[1])
+var float fixedHigh = na
+var float fixedLow = na
+if freshH4PivotHigh
+    fixedHigh := confirmedH4PivotHigh
+if freshH4PivotLow
+    fixedLow := confirmedH4PivotLow
+float htfHigh = fixedHigh
+float htfLow = fixedLow
+bool h4HighSweep = ta.crossover(high, htfHigh)
+bool h4LowSweep = ta.crossunder(low, htfLow)
+if h4HighSweep
+    isTrackingReversal := true
+    trackingHighSweep := true
+    maxPenetration := (high - htfHigh) / htfHigh * 100.0
+else if h4LowSweep
+    isTrackingReversal := true
+    trackingHighSweep := false
+    maxPenetration := (htfLow - low) / htfLow * 100.0
+else if isTrackingReversal
+    float currentSweepLevel = trackingHighSweep ? htfHigh : htfLow
+    if not na(currentSweepLevel)
+        float currentPenetration = trackingHighSweep ? (high - currentSweepLevel) / currentSweepLevel * 100.0 : (currentSweepLevel - low) / currentSweepLevel * 100.0
+        maxPenetration := math.max(maxPenetration, currentPenetration)
+
+bool confirmedH4Reversal = barstate.isconfirmed and isTrackingReversal and ((trackingHighSweep and bearishChoch) or (not trackingHighSweep and bullishChoch))
+string confirmedReversalType = trackingHighSweep ? "High" : "Low"
+if confirmedH4Reversal
+    if trackingHighSweep
+        array.unshift(historicalSweepsHigh, maxPenetration)
+        if array.size(historicalSweepsHigh) > 10
+            array.pop(historicalSweepsHigh)
+    else
+        array.unshift(historicalSweepsLow, maxPenetration)
+        if array.size(historicalSweepsLow) > 10
+            array.pop(historicalSweepsLow)
+    isTrackingReversal := false
+
+float avgHighSweepPercent = 0.58
+float avgLowSweepPercent = 0.72
+float statHighPlot = not na(fixedHigh) ? fixedHigh * (1.0 + 0.58 / 100.0) : na
+float statLowPlot = not na(fixedLow) ? fixedLow * (1.0 - 0.72 / 100.0) : na
+float alertPriceHigh = statHighPlot
+float alertPriceLow = statLowPlot
+bool historicalHighZoneHit = ta.crossover(high, alertPriceHigh)
+bool historicalLowZoneHit = ta.crossunder(low, alertPriceLow)
+float pctDropFromHigh = not na(htfHigh) ? (htfHigh - close) / htfHigh * 100.0 : na
+float pctRiseFromLow = not na(htfLow) ? (close - htfLow) / htfLow * 100.0 : na
+float liveHighDeviation = not na(htfHigh) and high > htfHigh ? (high - htfHigh) / htfHigh * 100.0 : 0.0
+float liveLowDeviation = not na(htfLow) and low < htfLow ? (htfLow - low) / htfLow * 100.0 : 0.0
+float liveSweepPenetration = isTrackingReversal ? maxPenetration : na
+float applicableSweepAverage = trackingHighSweep ? avgHighSweepPercent : avgLowSweepPercent
+bool inReversalProbabilityZone = isTrackingReversal and not na(applicableSweepAverage) and applicableSweepAverage > 0 and math.abs(liveSweepPenetration - applicableSweepAverage) <= applicableSweepAverage * 0.15
+
+// Step plots write fixed values into the historical series instead of moving line objects.
+fixedHighPlot = plot(fixedHigh, "Locked H4 High", color=color.new(bslColor, 35), linewidth=2, style=plot.style_stepline)
+statHighBoundaryPlot = plot(statHighPlot, "H4 High Statistical Corridor", color=statCorridorColor, linewidth=2, style=plot.style_stepline)
+fixedLowPlot = plot(fixedLow, "Locked H4 Low", color=color.new(sslColor, 35), linewidth=2, style=plot.style_stepline)
+statLowBoundaryPlot = plot(statLowPlot, "H4 Low Statistical Corridor", color=statCorridorColor, linewidth=2, style=plot.style_stepline)
+fill(fixedHighPlot, statHighBoundaryPlot, color=color.new(statCorridorColor, 92), title="H4 High Statistical Fill")
+fill(fixedLowPlot, statLowBoundaryPlot, color=color.new(statCorridorColor, 92), title="H4 Low Statistical Fill")
 
 // TradingView provides total volume, so Buy/Sell values are estimated from the close location in each candle.
 float candleRange = high - low
@@ -514,9 +593,20 @@ if bearishContinuation
             lastStructureLabelPrice := labelPrice
             lastStructureLabelBar := bar_index
 
-panelAnchor = panelPosition == "Top Right" ? position.top_right : panelPosition == "Top Left" ? position.top_left : panelPosition == "Bottom Right" ? position.bottom_right : position.bottom_left
-var table infoPanel = table.new(panelAnchor, 7, 11, frame_color=color.new(chart.fg_color, 60), frame_width=1, border_color=color.new(chart.fg_color, 80), border_width=1)
-if barstate.islast
+var table infoPanel = table.new(position.bottom_right, 7, 11, frame_color=color.new(chart.fg_color, 60), frame_width=1, border_color=color.new(chart.fg_color, 80), border_width=1)
+var table h4StatsPanel = table.new(position.top_right, 2, 4, frame_color=color.new(chart.fg_color, 60), frame_width=1, border_color=color.new(chart.fg_color, 80), border_width=1)
+if barstate.islast or barstate.islastconfirmedhistory
+    bool highProbabilityReversal = liveHighDeviation >= avgHighSweepPercent * 0.9 or liveLowDeviation >= avgLowSweepPercent * 0.9
+    string probabilityText = highProbabilityReversal ? "AUKŠTA TIKIMYBĖ" : "TRENDO TĘSINYS"
+    color probabilityBackground = highProbabilityReversal ? color.new(statCorridorColor, 0) : color.new(color.black, 25)
+    table.cell(h4StatsPanel, 0, 0, "H4 Lygių Analizė", text_color=color.white, text_size=size.small, bgcolor=color.black)
+    table.cell(h4StatsPanel, 1, 0, "Live", text_color=color.white, text_size=size.small, bgcolor=color.black)
+    table.cell(h4StatsPanel, 0, 1, "Atstumas nuo H4 High", text_color=chart.fg_color, text_size=size.small, bgcolor=color.new(color.black, 25))
+    table.cell(h4StatsPanel, 1, 1, na(pctDropFromHigh) ? "-" : str.tostring(pctDropFromHigh, "#.##") + "%", text_color=statCorridorColor, text_size=size.small, bgcolor=color.new(color.black, 25))
+    table.cell(h4StatsPanel, 0, 2, "Atstumas nuo H4 Low", text_color=chart.fg_color, text_size=size.small, bgcolor=color.new(color.black, 25))
+    table.cell(h4StatsPanel, 1, 2, na(pctRiseFromLow) ? "-" : str.tostring(pctRiseFromLow, "#.##") + "%", text_color=statCorridorColor, text_size=size.small, bgcolor=color.new(color.black, 25))
+    table.cell(h4StatsPanel, 0, 3, "Apsisukimo tikimybė:", text_color=chart.fg_color, text_size=size.small, bgcolor=color.new(color.black, 25))
+    table.cell(h4StatsPanel, 1, 3, probabilityText, text_color=highProbabilityReversal ? color.black : chart.fg_color, text_size=size.small, bgcolor=probabilityBackground)
     table.cell(infoPanel, 0, 0, "Candle", text_color=chart.fg_color, text_size=size.small, bgcolor=color.new(color.black, 15))
     table.cell(infoPanel, 1, 0, "Buy", text_color=bslColor, text_size=size.small, bgcolor=color.new(color.black, 15))
     table.cell(infoPanel, 2, 0, "Sell", text_color=sslColor, text_size=size.small, bgcolor=color.new(color.black, 15))
@@ -599,3 +689,13 @@ if alertBullishMomentum
 
 if alertWhaleSell
     alert(syminfo.ticker + " (" + timeframe.period + ") - WARNING: WHALE SELL Event Confirmed at price " + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
+
+if historicalHighZoneHit and array.size(historicalSweepsHigh) > 0
+    alert("🎯 BTC/ETH STATS ALERT: Price hit the Historic Reversal Zone above H4 High! Target Price: " + str.tostring(close, format.mintick) + ". Current deviation matches the historical average of " + str.tostring(avgHighSweepPercent, "#.##") + "%.", alert.freq_once_per_bar)
+
+if historicalLowZoneHit and array.size(historicalSweepsLow) > 0
+    alert("🎯 BTC/ETH STATS ALERT: Price hit the Historic Reversal Zone below H4 Low! Target Price: " + str.tostring(close, format.mintick) + ". Current deviation matches the historical average of " + str.tostring(avgLowSweepPercent, "#.##") + "%.", alert.freq_once_per_bar)
+
+if confirmedH4Reversal
+    float historicalAverage = confirmedReversalType == "High" ? avgHighSweepPercent : avgLowSweepPercent
+    alert("REVERSAL CONFIRMED | Type: " + confirmedReversalType + " | Peak Penetration: " + str.tostring(maxPenetration, "#.##") + "% | Historic Average for this Asset: " + str.tostring(historicalAverage, "#.##") + "%", alert.freq_once_per_bar_close)
