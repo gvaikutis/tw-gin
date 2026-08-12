@@ -51,6 +51,9 @@ Use this skill for changes to `PineScripts/Last Candle Volume Info.pine`.
 - A bull sweep requires positive Delta, positive CMF, or CMF recovery from below zero when `requireBullConfirmation` is enabled.
 - A bull sweep with Delta below `negativeDeltaThreshold` and CMF below zero is failed: report `SWEEP FAILED -> CONTINUATION DOWN` and seek an SSL bear target.
 - Highlight reversal signals with solid orange only when their Delta and CMF agree with the reversal direction.
+- Reversal probability labels use the same `totalVolume` and `compactVolume()` formatting as the live `C1` dashboard Total column: `39% WEAK\nVol: 9.38M`.
+- Classify labels with the configurable `High-volume reversal threshold` input, default `10M`: probability below 50% is `WEAK` when below the threshold, `HIGH VOL` when at or above it, and `STRONG` when probability is at least 50%.
+- Keep weak bullish labels orange and weak bearish labels gray. Low-probability `HIGH VOL` labels are blue for bullish reversals and purple for bearish reversals.
 
 ## Dashboard Contract
 

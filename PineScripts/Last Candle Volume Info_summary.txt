@@ -1,0 +1,100 @@
+LIQUIDITY MAP - LINIJŲ IR ŽYMŲ LEGENDA
+
+PAGRINDINĖ TAISYKLĖ
+Spalva nurodo lygio tipą ir krypties kontekstą. Linijos stilius nurodo būseną:
+- aktyvi linija tęsiasi į dešinę;
+- brūkšninė pilka linija yra jau paliestas / mitigated istorinis lygis;
+- storesnė ir ryškesnė linija reiškia stipresnį lygį (Equal High / Equal Low arba didelė apimtis).
+
+1. MINT / ŽALSVAI TURKIO SPALVOS LINIJOS - BSL
+- Reikšmė: Buy-Side Liquidity (BSL), likvidumas virš ankstesnių swing high / pivot high.
+- Kaina gali būti traukiama į šį lygį, nes virš jo dažnai yra short Stop Loss ir breakout pirkimo pavedimai.
+- Taškinė plonesnė mint linija: įprastas lokalus BSL pivot lygis.
+- Storesnė, ryškesnė mint linija: stiprus BSL - equal high arba pivot su padidėjusia apimtimi.
+- Mint brūkšninė linija žemesniame TF: patvirtinto H4 High projekcija. Ji rodoma 1H, 15M ir kituose TF, esančiuose žemiau pasirinkto HTF.
+
+2. RAUSVAI RAUDONOS / ROŽINĖS LINIJOS - SSL
+- Reikšmė: Sell-Side Liquidity (SSL), likvidumas žemiau ankstesnių swing low / pivot low.
+- Kaina gali būti traukiama į šį lygį, nes po juo dažnai yra long Stop Loss pavedimai.
+- Taškinė plonesnė rožinė linija: įprastas lokalus SSL pivot lygis.
+- Storesnė, ryškesnė rožinė linija: stiprus SSL - equal low arba pivot su padidėjusia apimtimi.
+- Rožinė brūkšninė linija žemesniame TF: patvirtinto H4 Low projekcija.
+
+3. ORANŽINĖS LINIJOS IR PUSIAU SKAIDRI ORANŽINĖ JUOSTA - H4 STATISTINIS KORIDORIUS
+- Virš H4 High esanti oranžinė linija: istorinis tikėtinas sweep nuokrypis virš H4 High.
+- Žemiau H4 Low esanti oranžinė linija: istorinis tikėtinas sweep nuokrypis žemiau H4 Low.
+- Skaidrus oranžinis plotas tarp H4 lygio ir oranžinės ribos: statistinė H4 sweep / galimo apsisukimo zona.
+- Tai nėra automatinis įėjimo signalas. Zona padeda vertinti, ar kaina jau pasiekė istoriškai reikšmingą likvidumo paėmimo gylį.
+
+4. GELTONA LINJA SU "BULL TARGET", "BEAR TARGET" ARBA "BEAR TARGET: OB"
+- Reikšmė: aktyvus forecast target - dabartinis indikatoriaus kainos tikslas.
+- BULL TARGET: po SSL sweep indikatorius ieško aktyvaus BSL virš kainos.
+- BEAR TARGET: po BSL sweep indikatorius ieško aktyvaus SSL žemiau kainos.
+- BEAR TARGET: OB: po Bear BOS arba Bear CHoCH tikslas yra stipriausio aktyvaus Bullish Order Block viršus žemiau kainos.
+- Geltona linija juda į dešinę kartu su naujomis žvakėmis. Etiketė dešinėje aiškiai nurodo jos tipą.
+- Kai target pasiekiamas, jis tampa pilkas ir brūkšninis. Kai target atšaukiamas, pakeičiamas ar baigiasi jo laikas, geltona linija ištrinama.
+
+5. PILKOS BRŪKŠNINĖS LINIJOS
+- Reikšmė: jau paliestas / mitigated likvidumo lygis arba jau pasiektas target.
+- Tai istorinis kontekstas, nebeaktyvus ateities traukos taškas.
+- Target atveju pilka brūkšninė linija rodo, kur forecast tikslas buvo sėkmingai pasiektas.
+
+6. ŽALIOS PUSIAU SKAIDRIOS DĖŽĖS - BULLISH ORDER BLOCK
+- Reikšmė: institucinė pirkėjų / paklausos zona, sukurta iš patvirtinto pivot low.
+- Dėžės viršus yra svarbiausia reakcijos riba; kaina gali ją testuoti kaip palaikymą.
+- Dešinėje esanti tamsiai žalia etiketė "Bull OB" rodo sukauptą įvertintą BUY volume ir Delta procentą.
+- Pilkėjanti dėžė reiškia, kad Bullish OB buvo invaliduotas.
+
+7. VIOLETINĖS / PURPURINĖS PUSIAU SKAIDRIOS DĖŽĖS - BEARISH ORDER BLOCK
+- Reikšmė: institucinė pardavėjų / pasiūlos zona, sukurta iš patvirtinto pivot high.
+- Dėžės apačia ir viršus sudaro pasipriešinimo sritį; kaina gali ją testuoti iš apačios.
+- Dešinėje esanti tamsiai raudona etiketė "Bear OB" rodo sukauptą įvertintą SELL volume ir Delta procentą.
+- Pilkėjanti dėžė reiškia, kad Bearish OB buvo invaliduotas.
+
+8. "BEAR BOS" IR "BEAR CHoCH" ETIKETĖS
+- Bear BOS: kaina pramušė ankstesnį struktūrinį low - bearish struktūros tęsimas.
+- Bear CHoCH: kaina pramušė minor low - ankstyvas lokalaus charakterio pasikeitimas į bearish pusę.
+- Šie signalai gali sukurti "BEAR TARGET: OB" į žemiau esantį Bullish OB.
+
+9. "LTF BULL CHoCH" IR "LTF BEAR CHoCH"
+- LTF BULL CHoCH: po SSL sweep aktyvaus grafiko laiko intervale kaina pramušė minor high. Tai ankstyvas bullish entry kontekstas prieš galimą didesnio TF reversal.
+- LTF BEAR CHoCH: po BSL sweep aktyvaus grafiko laiko intervale kaina pramušė minor low. Tai ankstyvas bearish entry kontekstas.
+- Patvirtinimo langą valdo "Internal CHoCH confirmation window (bars)" nustatymas.
+
+10. MAŽI ROMBAI VIRŠ / PO ŽVAKE
+- Mint rombas po žvake: santykinis institutional volume spike su teigiamu Delta.
+- Raudonas rombas virš žvakės: santykinis institutional volume spike su neigiamu Delta.
+- Rombas rodomas, kai local volume viršija Volume SMA x "Institutional volume spike multiplier" ir tuo pačiu vyksta sweep arba absorption sąlyga.
+- Tai yra apimties patvirtinimas, ne savarankiškas pirkimo ar pardavimo signalas.
+
+11. PROCENTŲ ETIKETĖS ANT GRAFIKO
+- Turkio procentas po kaina: bullish reversal tikimybė po SSL sweep, kai apimtis ir Delta palaiko kilimą.
+- Oranžinis procentas virš kainos: bearish reversal tikimybė po BSL sweep, kai apimtis ir Delta palaiko kritimą.
+- Tikimybė sujungia istorinių sweep rezultatų bazę, santykinę apimtį, Delta stiprumą ir H4 koridoriaus confluence.
+- Etiketės formatas: "39% WEAK" arba "39% HIGH VOL", antroje eilutėje "Vol: 9.38M".
+- "Vol" naudoja tą patį TOTAL / totalVolume kaip Candle Volume Dashboard gyva C1 eilutė ir tą patį K/M sutrumpinimą.
+- Jei tikimybė mažesnė nei 50% ir volume žemiau "High-volume reversal threshold" (numatyta 10M), rodoma "WEAK". Bullish WEAK yra oranžinis, bearish WEAK - pilkas.
+- Jei tikimybė mažesnė nei 50%, bet volume pasiekia arba viršija threshold, rodoma "HIGH VOL". Bullish HIGH VOL yra mėlynas, bearish HIGH VOL - purpurinis: tai didelės apimties anomalijos / galimos institucinės absorbcijos perspėjimas.
+- Jei tikimybė yra bent 50%, rodoma "STRONG" ir išlaikoma įprasta kryptinė spalva.
+
+12. H4 LENTELĖ VIRŠUJE DEŠINĖJE
+- "Atstumas nuo H4 High": atstumas procentais iki paskutinio H4 High.
+- "Atstumas nuo H4 Low": atstumas procentais iki paskutinio H4 Low.
+- "Apsisukimo tikimybė": paskutinio reversal signalo tikimybė ir jo kryptis, arba live reikšmė, jei signalo dar nebuvo.
+
+13. CANDLE VOLUME DASHBOARD APAČIOJE DEŠINĖJE
+- BUY (V) / SELL (V): įvertintas pirkimo ir pardavimo volume pagal žvakės užsidarymo vietą range viduje; tai nėra biržos bid/ask duomenys.
+- TOTAL: bendra žvakės apimtis.
+- DELTA: BUY ir SELL įvertintos apimties skirtumas procentais.
+- CMF: Chaikin Money Flow reikšmė.
+- SIGNAL / BIAS: aktyvus sweep, target, CHoCH, Whale, Order Block test, institutional volume arba trend bias pranešimas.
+
+TRUMPAS SPALVŲ ŽEMĖLAPIS
+- Mint / turkis: BSL, bullish kontekstas, teigiamas Delta.
+- Rožinė / raudona: SSL, bearish kontekstas, neigiamas Delta.
+- Oranžinė: H4 statistinis sweep / reversal koridorius ir bearish probability etiketė.
+- Mėlyna / purpurinė: mažos tikimybės reversal signalas su HIGH VOL virš nustatyto volume threshold.
+- Geltona: aktyvus forecast target.
+- Pilka brūkšninė: istorinis, jau paliestas arba pasiektas lygis.
+- Žalia dėžė: Bullish Order Block palaikymo zona.
+- Violetinė dėžė: Bearish Order Block pasipriešinimo zona.
