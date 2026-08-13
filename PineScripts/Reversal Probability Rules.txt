@@ -1,0 +1,66 @@
+REVERSAL PROBABILITY LABEL RULES
+
+1. WHEN A PROBABILITY LABEL IS DRAWN
+
+Bullish probability label (below the candle):
+- An SSL / sell-side liquidity sweep occurred during the current or previous 3 bars.
+- Current total volume is greater than 1.5 x the whale volume average.
+- Delta is positive: estimated Buy Volume is greater than estimated Sell Volume.
+
+Bearish probability label (above the candle):
+- A BSL / buy-side liquidity sweep occurred during the current or previous 3 bars.
+- Current total volume is greater than 1.5 x the whale volume average.
+- Delta is negative: estimated Sell Volume is greater than estimated Buy Volume.
+
+2. PROBABILITY SCORE
+
+Probability = historical sweep reversal success rate + volume weight + Delta weight + H4 confluence weight.
+The result is limited to the 0% to 99% range.
+
+Historical sweep reversal success rate:
+- successful completed sweep targets / all detected liquidity sweeps x 100.
+
+Volume weight:
+- +15 when current total volume is greater than 2.0 x its 20-bar total-volume SMA.
+- +10 when current total volume is greater than 1.5 x its 20-bar total-volume SMA.
+- +0 otherwise.
+
+Delta weight:
+- +15 when abs(Delta) / total volume is greater than 0.35.
+- +10 when abs(Delta) / total volume is greater than 0.20.
+- +0 otherwise.
+
+H4 confluence weight:
+- +15 for a bullish reversal setup that reaches or moves below the lower H4 statistical corridor.
+- +15 for a bearish reversal setup that reaches or moves above the upper H4 statistical corridor.
+- +0 when neither condition applies.
+
+3. STRENGTH CLASSIFICATION
+
+- STRONG: probability is 50% or higher.
+- WEAK: probability is below 50% and total volume is below the High-volume reversal threshold.
+- HIGH VOL: probability is below 50% and total volume is at or above the High-volume reversal threshold.
+
+The default High-volume reversal threshold is 10,000,000. It can be changed in the indicator settings.
+
+4. PROBABILITY LABEL COLORS
+
+ORANGE
+- Bullish orange: a bullish reversal label with probability below 50% and total volume below the High-volume reversal threshold. Text: WEAK. The label is below price and shows Buy: X.XXK/M.
+- Bearish orange: a bearish reversal label with probability of 50% or higher. Text: STRONG. The label is above price and shows Sell: X.XXK/M.
+
+BLUE
+- Bullish blue: a bullish reversal label with probability below 50% and total volume at or above the High-volume reversal threshold. Text: HIGH VOL. The label is below price and shows Buy: X.XXK/M.
+
+PURPLE
+- Bearish purple: a bearish reversal label with probability below 50% and total volume at or above the High-volume reversal threshold. Text: HIGH VOL. The label is above price and shows Sell: X.XXK/M.
+
+OTHER COLORS
+- Teal: bullish STRONG label; probability is 50% or higher.
+- Gray: bearish WEAK label; probability is below 50% and total volume is below the High-volume reversal threshold.
+
+5. VOLUME DISPLAY
+
+- Bullish probability labels display estimated Buy Volume, formatted with the same K/M formatter as the dashboard.
+- Bearish probability labels display estimated Sell Volume, formatted with the same K/M formatter as the dashboard.
+- The HIGH VOL classification always uses total volume, not the displayed Buy or Sell volume.

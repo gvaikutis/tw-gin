@@ -129,6 +129,7 @@ var string lastSignalDirectionStr = ""
 color statCorridorColor = #ff9800
 
 float atrValue = ta.atr(atrLength)
+float labelCollisionOffset = math.max(syminfo.mintick * 10.0, atrValue * 0.75)
 
 toleranceAt(float price) => price * tolerancePercent / 100.0
 
@@ -601,8 +602,8 @@ string reversalProbabilityText = str.tostring(math.round(reversalProbability)) +
 bool weakReversalSignal = reversalProbability < 50.0
 bool highVolumeReversalSignal = totalVolume >= highVolumeReversalThreshold
 string reversalStrengthText = weakReversalSignal ? highVolumeReversalSignal ? "HIGH VOL" : "WEAK" : "STRONG"
-string bullishReversalLabelText = reversalProbabilityText + " " + reversalStrengthText + "\nVol: " + compactVolume(totalVolume)
-string bearishReversalLabelText = reversalProbabilityText + " " + reversalStrengthText + "\nVol: " + compactVolume(totalVolume)
+string bullishReversalLabelText = reversalProbabilityText + " " + reversalStrengthText + "\nBuy: " + compactVolume(buyVolume)
+string bearishReversalLabelText = reversalProbabilityText + " " + reversalStrengthText + "\nSell: " + compactVolume(sellVolume)
 color bullishReversalLabelColor = weakReversalSignal ? highVolumeReversalSignal ? color.blue : color.orange : color.teal
 color bearishReversalLabelColor = weakReversalSignal ? highVolumeReversalSignal ? color.purple : color.gray : color.orange
 bool reversalSignalStarted = (isPotentialReversal and not isPotentialReversal[1]) or (isPotentialBearishReversal and not isPotentialBearishReversal[1])
@@ -613,9 +614,23 @@ if barstate.isconfirmed and reversalSignalStarted
     lastSignalBiasStr := reversalProbability > 55 ? "DIDELĖ TIKIMYBĖ" : reversalProbability < 40 ? "MAŽA TIKIMYBĖ" : "VIDUTINĖ TIKIMYBĖ"
     lastSignalDirectionStr := isPotentialBearishReversal ? " (BEAR REVERSAL)" : " (BULL REVERSAL)"
 if isPotentialReversal
-    label.new(bar_index, low, bullishReversalLabelText, style=label.style_label_up, color=bullishReversalLabelColor, textcolor=color.white, size=size.small)
+    float bullishReversalLabelOffset = labelCollisionOffset
+    float bullishReversalLabelPrice = low - bullishReversalLabelOffset
+    bool bullishReversalWouldOverlap = not na(lastStructureLabelPrice) and not na(lastStructureLabelBar) and bar_index - lastStructureLabelBar <= 10 and math.abs(bullishReversalLabelPrice - lastStructureLabelPrice) < bullishReversalLabelOffset
+    if bullishReversalWouldOverlap
+        bullishReversalLabelPrice := lastStructureLabelPrice - bullishReversalLabelOffset
+    label.new(bar_index, bullishReversalLabelPrice, bullishReversalLabelText, style=label.style_label_up, color=bullishReversalLabelColor, textcolor=color.white, size=size.small)
+    lastStructureLabelPrice := bullishReversalLabelPrice
+    lastStructureLabelBar := bar_index
 if isPotentialBearishReversal
-    label.new(bar_index, high, bearishReversalLabelText, style=label.style_label_down, color=bearishReversalLabelColor, textcolor=color.white, size=size.small)
+    float bearishReversalLabelOffset = labelCollisionOffset
+    float bearishReversalLabelPrice = high + bearishReversalLabelOffset
+    bool bearishReversalWouldOverlap = not na(lastStructureLabelPrice) and not na(lastStructureLabelBar) and bar_index - lastStructureLabelBar <= 10 and math.abs(bearishReversalLabelPrice - lastStructureLabelPrice) < bearishReversalLabelOffset
+    if bearishReversalWouldOverlap
+        bearishReversalLabelPrice := lastStructureLabelPrice + bearishReversalLabelOffset
+    label.new(bar_index, bearishReversalLabelPrice, bearishReversalLabelText, style=label.style_label_down, color=bearishReversalLabelColor, textcolor=color.white, size=size.small)
+    lastStructureLabelPrice := bearishReversalLabelPrice
+    lastStructureLabelBar := bar_index
 
 bool wheelExecutionAlert = false
 string wheelDashboardState = "NONE"
@@ -754,6 +769,7 @@ float continuationTarget = na
 float bestObPower = -1.0
 int bestObTouches = -1
 float bestObDistance = na
+bool bearishStructureLabelDrawn = false
 if bearishContinuation
     bullishBlockCount := array.size(bullishObStack)
     if bullishBlockCount > 0
@@ -788,23 +804,25 @@ if bearishContinuation
         targetTracksSweepOutcome := false
         barSignal := targetOriginSignal
         if showChochLabels
-            float baseLabelOffset = math.max(syminfo.mintick * 10.0, atrValue * 0.15)
+            float baseLabelOffset = labelCollisionOffset
             float labelOffset = isPotentialBearishReversal ? baseLabelOffset * 3.0 : baseLabelOffset
             float labelPrice = high + labelOffset
             bool labelWouldOverlap = not na(lastStructureLabelPrice) and not na(lastStructureLabelBar) and bar_index - lastStructureLabelBar <= 10 and math.abs(labelPrice - lastStructureLabelPrice) < labelOffset
             if labelWouldOverlap
                 labelPrice := lastStructureLabelPrice + labelOffset
             string structureSignalName = bearishBos ? "Bear BOS" : "Bear CHoCH"
+            structureSignalName := internalBearishChoch ? structureSignalName + " + LTF Bear CHoCH" : structureSignalName
             label.new(bar_index, labelPrice, structureLabelText(structureSignalName, totalVolume, deltaPercent), style=label.style_label_down, color=sslColor, textcolor=color.white, size=size.tiny)
             lastStructureLabelPrice := labelPrice
             lastStructureLabelBar := bar_index
+            bearishStructureLabelDrawn := true
 
 if internalBullishChoch
     barSignal := barSignal == "" ? "LTF BULL CHoCH -> EARLY ENTRY" : barSignal + " | LTF BULL CHoCH"
 if internalBearishChoch
     barSignal := barSignal == "" ? "LTF BEAR CHoCH -> EARLY ENTRY" : barSignal + " | LTF BEAR CHoCH"
 if showChochLabels and internalBullishChoch
-    float bullChochLabelOffset = math.max(syminfo.mintick * 10.0, atrValue * 0.15)
+    float bullChochLabelOffset = labelCollisionOffset
     float bullChochLabelPrice = low - bullChochLabelOffset
     bool bullChochWouldOverlap = not na(lastStructureLabelPrice) and not na(lastStructureLabelBar) and bar_index - lastStructureLabelBar <= 10 and math.abs(bullChochLabelPrice - lastStructureLabelPrice) < bullChochLabelOffset
     if bullChochWouldOverlap
@@ -812,8 +830,8 @@ if showChochLabels and internalBullishChoch
     label.new(bar_index, bullChochLabelPrice, structureLabelText("LTF Bull CHoCH", totalVolume, deltaPercent), style=label.style_label_up, color=bslColor, textcolor=color.white, size=size.tiny)
     lastStructureLabelPrice := bullChochLabelPrice
     lastStructureLabelBar := bar_index
-if showChochLabels and internalBearishChoch
-    float bearChochLabelOffset = math.max(syminfo.mintick * 10.0, atrValue * 0.15)
+if showChochLabels and internalBearishChoch and not bearishStructureLabelDrawn
+    float bearChochLabelOffset = labelCollisionOffset
     float bearChochLabelPrice = high + bearChochLabelOffset
     bool bearChochWouldOverlap = not na(lastStructureLabelPrice) and not na(lastStructureLabelBar) and bar_index - lastStructureLabelBar <= 10 and math.abs(bearChochLabelPrice - lastStructureLabelPrice) < bearChochLabelOffset
     if bearChochWouldOverlap

@@ -71,8 +71,8 @@ Spalva nurodo lygio tipą ir krypties kontekstą. Linijos stilius nurodo būsen�
 - Turkio procentas po kaina: bullish reversal tikimybė po SSL sweep, kai apimtis ir Delta palaiko kilimą.
 - Oranžinis procentas virš kainos: bearish reversal tikimybė po BSL sweep, kai apimtis ir Delta palaiko kritimą.
 - Tikimybė sujungia istorinių sweep rezultatų bazę, santykinę apimtį, Delta stiprumą ir H4 koridoriaus confluence.
-- Etiketės formatas: "39% WEAK" arba "39% HIGH VOL", antroje eilutėje "Vol: 9.38M".
-- "Vol" naudoja tą patį TOTAL / totalVolume kaip Candle Volume Dashboard gyva C1 eilutė ir tą patį K/M sutrumpinimą.
+- Etiketės formatas: "39% WEAK" arba "39% HIGH VOL", antroje eilutėje "Buy: 9.38M" bullish signalui arba "Sell: 9.38M" bearish signalui.
+- "Buy" ir "Sell" naudoja tuos pačius estimated buyVolume / sellVolume skaičiavimus kaip Candle Volume Dashboard gyva C1 eilutė ir tą patį K/M sutrumpinimą.
 - Jei tikimybė mažesnė nei 50% ir volume žemiau "High-volume reversal threshold" (numatyta 10M), rodoma "WEAK". Bullish WEAK yra oranžinis, bearish WEAK - pilkas.
 - Jei tikimybė mažesnė nei 50%, bet volume pasiekia arba viršija threshold, rodoma "HIGH VOL". Bullish HIGH VOL yra mėlynas, bearish HIGH VOL - purpurinis: tai didelės apimties anomalijos / galimos institucinės absorbcijos perspėjimas.
 - Jei tikimybė yra bent 50%, rodoma "STRONG" ir išlaikoma įprasta kryptinė spalva.
