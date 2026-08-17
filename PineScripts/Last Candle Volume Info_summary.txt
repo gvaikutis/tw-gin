@@ -42,13 +42,13 @@ Spalva nurodo lygio tipą ir krypties kontekstą. Linijos stilius nurodo būsen�
 6. ŽALIOS PUSIAU SKAIDRIOS DĖŽĖS - BULLISH ORDER BLOCK
 - Reikšmė: institucinė pirkėjų / paklausos zona, sukurta iš patvirtinto pivot low.
 - Dėžės viršus yra svarbiausia reakcijos riba; kaina gali ją testuoti kaip palaikymą.
-- Dešinėje esanti tamsiai žalia etiketė "Bull OB" rodo sukauptą įvertintą BUY volume ir Delta procentą.
+- Dešinėje esanti tamsiai žalia etiketė "Bull OB" rodo sukauptą įvertintą BUY volume USDT verte ir Delta procentą.
 - Pilkėjanti dėžė reiškia, kad Bullish OB buvo invaliduotas.
 
 7. VIOLETINĖS / PURPURINĖS PUSIAU SKAIDRIOS DĖŽĖS - BEARISH ORDER BLOCK
 - Reikšmė: institucinė pardavėjų / pasiūlos zona, sukurta iš patvirtinto pivot high.
 - Dėžės apačia ir viršus sudaro pasipriešinimo sritį; kaina gali ją testuoti iš apačios.
-- Dešinėje esanti tamsiai raudona etiketė "Bear OB" rodo sukauptą įvertintą SELL volume ir Delta procentą.
+- Dešinėje esanti tamsiai raudona etiketė "Bear OB" rodo sukauptą įvertintą SELL volume USDT verte ir Delta procentą.
 - Pilkėjanti dėžė reiškia, kad Bearish OB buvo invaliduotas.
 
 8. "BEAR BOS" IR "BEAR CHoCH" ETIKETĖS
@@ -61,19 +61,19 @@ Spalva nurodo lygio tipą ir krypties kontekstą. Linijos stilius nurodo būsen�
 - LTF BEAR CHoCH: po BSL sweep aktyvaus grafiko laiko intervale kaina pramušė minor low. Tai ankstyvas bearish entry kontekstas.
 - Patvirtinimo langą valdo "Internal CHoCH confirmation window (bars)" nustatymas.
 
-10. MAŽI ROMBAI VIRŠ / PO ŽVAKE
-- Mint rombas po žvake: santykinis institutional volume spike su teigiamu Delta.
-- Raudonas rombas virš žvakės: santykinis institutional volume spike su neigiamu Delta.
-- Rombas rodomas, kai local volume viršija Volume SMA x "Institutional volume spike multiplier" ir tuo pačiu vyksta sweep arba absorption sąlyga.
-- Tai yra apimties patvirtinimas, ne savarankiškas pirkimo ar pardavimo signalas.
+10. GELTONAS APSKRITIMAS VIRŠ ŽVAKĖS - "VOL CLIMAX ABS"
+- Geltonas apskritimas rodo galimą bullish volume absorption / exhaustion ties H4 viršutiniu koridoriumi.
+- Jis rodomas, kai kaina pasiekia H4 High / upper corridor, yra institutional volume spike, Delta teigiamas, bet mažesnis nei ankstesnės žvakės Delta.
+- Institutional volume spike skaičiuojamas USDT volume verte: baro volume × close, palyginta su USDT Volume SMA × "Institutional volume spike multiplier".
+- Tai perspėjimas apie silpnėjantį pirkimo spaudimą ties pasipriešinimu, ne savarankiškas sell signalas.
 
 11. PROCENTŲ ETIKETĖS ANT GRAFIKO
 - Turkio procentas po kaina: bullish reversal tikimybė po SSL sweep, kai apimtis ir Delta palaiko kilimą.
 - Oranžinis procentas virš kainos: bearish reversal tikimybė po BSL sweep, kai apimtis ir Delta palaiko kritimą.
 - Tikimybė sujungia istorinių sweep rezultatų bazę, santykinę apimtį, Delta stiprumą ir H4 koridoriaus confluence.
-- Etiketės formatas: "39% WEAK" arba "39% HIGH VOL", antroje eilutėje "Buy: 9.38M" bullish signalui arba "Sell: 9.38M" bearish signalui.
-- "Buy" ir "Sell" naudoja tuos pačius estimated buyVolume / sellVolume skaičiavimus kaip Candle Volume Dashboard gyva C1 eilutė ir tą patį K/M sutrumpinimą.
-- Jei tikimybė mažesnė nei 50% ir volume žemiau "High-volume reversal threshold" (numatyta 10M), rodoma "WEAK". Bullish WEAK yra oranžinis, bearish WEAK - pilkas.
+- Etiketės formatas: "39% WEAK" arba "39% HIGH VOL", antroje eilutėje "Buy: $9.38M" bullish signalui arba "Sell: $9.38M" bearish signalui.
+- "Buy" ir "Sell" naudoja tuos pačius estimated buyVolume / sellVolume USDT skaičiavimus kaip Candle Volume Dashboard gyva C1 eilutė ir tą patį K/M/B sutrumpinimą.
+- Jei tikimybė mažesnė nei 50% ir USDT volume žemiau "High-vol threshold" (numatyta 10M USDT), rodoma "WEAK". Bullish WEAK yra oranžinis, bearish WEAK - pilkas.
 - Jei tikimybė mažesnė nei 50%, bet volume pasiekia arba viršija threshold, rodoma "HIGH VOL". Bullish HIGH VOL yra mėlynas, bearish HIGH VOL - purpurinis: tai didelės apimties anomalijos / galimos institucinės absorbcijos perspėjimas.
 - Jei tikimybė yra bent 50%, rodoma "STRONG" ir išlaikoma įprasta kryptinė spalva.
 
@@ -83,13 +83,14 @@ Spalva nurodo lygio tipą ir krypties kontekstą. Linijos stilius nurodo būsen�
 - "Apsisukimo tikimybė": paskutinio reversal signalo tikimybė ir jo kryptis, arba live reikšmė, jei signalo dar nebuvo.
 - "Trendas (HTF)": aukštesnio TF (numatyta 4H) EMA trendo kryptis - AUKŠTYN (žalias), ŽEMYN (raudonas) arba DIAPAZONAS (pilkas). Reversal prieš šią kryptį yra prieš trendą.
 - "CVD divergencija": BULL DIV (žalias) arba BEAR DIV (raudonas), kai per paskutinius kelis barus (numatyta 5) buvo užfiksuota CVD divergencija; kitaip "-".
-- "RVOL (x vidurkis)": dabartinės žvakės apimtis padalinta iš apimties vidurkio; žalias nuo 1.5x (stipri apimtis), pilkas žemiau 1.0x (plona). Veikia visose rinkose geriau nei absoliutus HIGH VOL slenkstis.
+- "RVOL (x vidurkis)": dabartinės žvakės USDT apimtis padalinta iš USDT apimties vidurkio; žalias nuo 1.5x (stipri apimtis), pilkas žemiau 1.0x (plona).
 
 13. CANDLE VOLUME DASHBOARD APAČIOJE DEŠINĖJE
-- BUY (V) / SELL (V): įvertintas pirkimo ir pardavimo volume pagal žvakės užsidarymo vietą range viduje; tai nėra biržos bid/ask duomenys.
-- TOTAL: bendra žvakės apimtis.
+- BUY (USDT) / SELL (USDT): įvertinta pirkimo ir pardavimo apimtis USDT verte (estimated volume × close) pagal žvakės užsidarymo vietą range viduje; tai nėra biržos bid/ask duomenys.
+- TOTAL (USDT): bendra žvakės apimtis USDT verte (volume × close).
 - DELTA: BUY ir SELL įvertintos apimties skirtumas procentais.
 - CMF: Chaikin Money Flow reikšmė.
+- OI DELTA: konkrečios žvakės Open Interest pokytis USDT verte ir visas OI skliausteliuose, pvz. "+147.43K ($2.45B)".
 - SIGNAL / BIAS: aktyvus sweep, target, CHoCH, Whale, Order Block test, institutional volume, CVD divergencija (BULL DIV / BEAR DIV) arba trend bias pranešimas.
 
 14. MAŽI TRIKAMPIAI - CVD DIVERGENCIJA
@@ -108,3 +109,10 @@ TRUMPAS SPALVŲ ŽEMĖLAPIS
 - Žalia dėžė: Bullish Order Block palaikymo zona.
 - Violetinė dėžė: Bearish Order Block pasipriešinimo zona.
 - Žalias trikampis po žvake: bullish CVD divergencija. Raudonas trikampis virš žvakės: bearish CVD divergencija.
+
+15. OI ŽYMENYS ANT ŽVAKIŲ
+- Žydras rombas po žvake: Institutional Accumulation. OI didėja, Delta yra neutralus, o OI pokytis viršija reikšmingo OI dydį.
+- Fuksinis "SQ" trikampis po žvake: Short Squeeze. OI mažėja, o Delta viršija bullish Delta threshold.
+- Oranžinis "LQ" trikampis virš žvakės: Long Squeeze. OI mažėja, o Delta yra žemiau bearish Delta threshold.
+- Po Accumulation ir SQ, o virš LQ žymens rodoma konkretaus baro OI pokyčio USDT vertė, pvz. "+$3.2B" arba "-$150M".
+- Reikšmingas OI pokytis nėra fiksuotas milijardų slenkstis: |OI Delta USDT| turi viršyti "Significant OI (% of traded USDT volume)" nustatymą (numatyta 15% baro volume × close).
