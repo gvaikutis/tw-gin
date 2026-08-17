@@ -32,7 +32,12 @@ cmfLength = input.int(20, "CMF length", minval=1, group="Candle Volume Dashboard
 whaleLength = input.int(20, "Volume average length", minval=1, group="Candle Volume Dashboard")
 whaleMultiplier = input.float(2.0, "Volume deviation multiplier", minval=0.1, step=0.1, group="Candle Volume Dashboard")
 reversalOutcomeWindow = input.int(20, "Target outcome window (bars)", minval=1, group="Reversal Probability")
-highVolumeReversalThreshold = input.float(10000000.0, "High-volume reversal threshold", minval=0.0, step=1000000.0, group="Reversal Probability")
+int highVolThresholdScalp = input.int(10000000, "High-vol threshold (≤ 15m)", minval=0, step=1000000, group="Reversal Probability")
+int highVolThresholdIntraday = input.int(10000000, "High-vol threshold (16m–1H)", minval=0, step=1000000, group="Reversal Probability")
+int highVolThresholdSwing = input.int(10000000, "High-vol threshold (2H+)", minval=0, step=1000000, group="Reversal Probability")
+// Threshold auto-selected from the chart timeframe so HIGH VOL scales across intervals.
+float chartTimeframeSeconds = timeframe.in_seconds(timeframe.period)
+int highVolThreshold = chartTimeframeSeconds <= 900 ? highVolThresholdScalp : chartTimeframeSeconds <= 3600 ? highVolThresholdIntraday : highVolThresholdSwing
 obMergePercent = input.float(0.15, "OB merge tolerance (%)", minval=0.001, step=0.01, group="Order Block Clustering")
 useAtrObMerge = input.bool(true, "Use ATR OB merge tolerance", group="Order Block Clustering")
 obMergeAtrMultiplier = input.float(0.75, "OB merge ATR multiplier", minval=0.01, step=0.05, group="Order Block Clustering")
@@ -44,6 +49,14 @@ sslColor = input.color(#dd326b, "SSL color", group="Liquidity Map", inline="colo
 lineTouchTolerancePercent = input.float(0.02, "Line Touch Tolerance %", minval=0.001, step=0.001, group="Institutional Alerts")
 absorptionSmaLength = input.int(10, "Absorption volume/body SMA length", minval=1, group="Institutional Alerts")
 absorptionVolumeMultiplier = input.float(1.5, "Absorption volume spike multiplier", minval=1.0, step=0.1, group="Institutional Alerts")
+string flowTrendGroup = "Flow & Trend Confirmation"
+showCvdDivergence = input.bool(true, "Detect CVD divergence at pivots", group=flowTrendGroup)
+cvdDivergenceWindow = input.int(5, "CVD divergence active window (bars)", minval=1, group=flowTrendGroup)
+trendBiasTimeframe = input.timeframe("240", "Trend bias timeframe", group=flowTrendGroup)
+trendBiasEmaLength = input.int(50, "Trend bias EMA length", minval=1, group=flowTrendGroup)
+exportAnalysisData = input.bool(true, "Expose per-candle metrics in Data Window (CSV export)", group="Data / Analysis")
+showReversalFailureLog = input.bool(true, "Log invalidated Order Blocks (failure table + Pine Logs)", group="Data / Analysis")
+showReversalFailureTable = input.bool(false, "Show invalidated Order Block failure table", group="Data / Analysis")
 
 type LiquidityZone
     float level
@@ -62,6 +75,7 @@ type BullishOrderBlock
     float deltaVolume
     int touches
     bool active
+    bool reversalLabelPrinted
     box boxRef
     label labelRef
 
@@ -74,6 +88,7 @@ type BearishOrderBlock
     float deltaVolume
     int touches
     bool active
+    bool reversalLabelPrinted
     box boxRef
     label labelRef
 
@@ -108,12 +123,18 @@ var bool bearishObActive = false
 var box bearishObBox = na
 var array<BullishOrderBlock> bullishObStack = array.new<BullishOrderBlock>()
 var array<BearishOrderBlock> bearishObStack = array.new<BearishOrderBlock>()
+var array<line> absorptionCeilingLines = array.new_line()
+var array<float> absorptionCeilingPrices = array.new_float()
+var array<bool> absorptionCeilingActive = array.new_bool()
 var array<int> lockedTargetBars = array.new_int()
 var array<string> lockedTargetSignals = array.new_string()
 var array<int> supersededTargetBars = array.new_int()
 var array<string> supersededTargetOutcomes = array.new_string()
 var float lastStructureLabelPrice = na
 var int lastStructureLabelBar = na
+var int lastExhaustionLabelBar = na
+var int lastBullishObTouchLabelBar = na
+var int lastBearishObTouchLabelBar = na
 var bool isTrackingReversal = false
 var bool trackingHighSweep = false
 var float maxPenetration = 0.0
@@ -121,11 +142,22 @@ var float[] historicalSweepsHigh = array.new_float()
 var float[] historicalSweepsLow = array.new_float()
 var int totalLiquiditySweeps = 0
 var int successfulSweepReversals = 0
+var float cvd = 0.0
+var float lastPivotHighPrice = na
+var float lastPivotHighCvd = na
+var float lastPivotLowPrice = na
+var float lastPivotLowCvd = na
 var float lastSignalH4HighDist = na
 var float lastSignalH4LowDist = na
 var float lastSignalProbability = na
 var string lastSignalBiasStr = "TRENDO TĘSINYS"
 var string lastSignalDirectionStr = ""
+var label latestBullishProbabilityLabel = na
+var label latestBearishProbabilityLabel = na
+var int bars_since_exh = 0
+var float exh_high = na
+var float exh_low = na
+var box exhaustionSupplyBox = na
 color statCorridorColor = #ff9800
 
 float atrValue = ta.atr(atrLength)
@@ -153,9 +185,9 @@ obRangesAreNear(float firstTop, float firstBottom, float secondTop, float second
     bool existingBottomInsideNew = firstBottom <= secondTop + mergeDistance and firstBottom >= secondBottom - mergeDistance
     newTopInsideExisting or newBottomInsideExisting or existingTopInsideNew or existingBottomInsideNew
 
-bullishBlockInvalidated(BullishOrderBlock block) => close <= block.bottom
+bullishBlockInvalidated(BullishOrderBlock block, float currentDeltaPercent, float currentRelativeVolume, float cumulativeDeltaPercent) => close <= block.bottom and ((currentDeltaPercent < -25.0 and not na(currentRelativeVolume) and currentRelativeVolume > 1.5) or (not na(cumulativeDeltaPercent) and cumulativeDeltaPercent < -40.0))
 
-bearishBlockInvalidated(BearishOrderBlock block) => close >= block.top
+bearishBlockInvalidated(BearishOrderBlock block, float currentDeltaPercent, float currentRelativeVolume, float cumulativeDeltaPercent) => close >= block.top and ((currentDeltaPercent > 25.0 and not na(currentRelativeVolume) and currentRelativeVolume > 1.5) or (not na(cumulativeDeltaPercent) and cumulativeDeltaPercent > 40.0))
 
 addBullishOrderBlock(float obTop, float obBottom, float obPower, float obBuyVolume, float obTotalVolume, float obDeltaVolume) =>
     bool matched = false
@@ -183,7 +215,7 @@ addBullishOrderBlock(float obTop, float obBottom, float obPower, float obBuyVolu
         float blockDeltaPercent = obTotalVolume > 0 ? obDeltaVolume / obTotalVolume * 100.0 : 0.0
         box newBox = box.new(bar_index - rightBars, obTop, bar_index, obBottom, xloc=xloc.bar_index, border_color=color.new(bslColor, 25), bgcolor=color.new(bslColor, 85))
         label newLabel = label.new(bar_index + 10, obBottom, "Bull OB: " + str.tostring(obBuyVolume, format.volume) + " [+" + str.tostring(blockDeltaPercent, "#") + "%]", xloc=xloc.bar_index, style=label.style_label_left, color=#0b3d2e, textcolor=color.white, size=size.tiny)
-        array.push(bullishObStack, BullishOrderBlock.new(obTop, obBottom, obPower, obBuyVolume, obTotalVolume, obDeltaVolume, 1, true, newBox, newLabel))
+        array.push(bullishObStack, BullishOrderBlock.new(obTop, obBottom, obPower, obBuyVolume, obTotalVolume, obDeltaVolume, 1, true, false, newBox, newLabel))
     if array.size(bullishObStack) > 20
         BullishOrderBlock oldestBlock = array.shift(bullishObStack)
         box.delete(oldestBlock.boxRef)
@@ -215,7 +247,7 @@ addBearishOrderBlock(float obTop, float obBottom, float obPower, float obSellVol
         float blockDeltaPercent = obTotalVolume > 0 ? obDeltaVolume / obTotalVolume * 100.0 : 0.0
         box newBox = box.new(bar_index - rightBars, obTop, bar_index, obBottom, xloc=xloc.bar_index, border_color=color.new(color.purple, 25), bgcolor=color.new(color.purple, 85))
         label newLabel = label.new(bar_index + 10, obTop, "Bear OB: " + str.tostring(obSellVolume, format.volume) + " [" + str.tostring(blockDeltaPercent, "#") + "%]", xloc=xloc.bar_index, style=label.style_label_left, color=#5a1420, textcolor=color.white, size=size.tiny)
-        array.push(bearishObStack, BearishOrderBlock.new(obTop, obBottom, obPower, obSellVolume, obTotalVolume, obDeltaVolume, 1, true, newBox, newLabel))
+        array.push(bearishObStack, BearishOrderBlock.new(obTop, obBottom, obPower, obSellVolume, obTotalVolume, obDeltaVolume, 1, true, false, newBox, newLabel))
     if array.size(bearishObStack) > 20
         BearishOrderBlock oldestBlock = array.shift(bearishObStack)
         box.delete(oldestBlock.boxRef)
@@ -370,20 +402,32 @@ float buyVolumeStDev = ta.stdev(buyVolume, whaleLength)
 float sellVolumeSma = ta.sma(sellVolume, whaleLength)
 float sellVolumeStDev = ta.stdev(sellVolume, whaleLength)
 float whaleVolumeAverage = ta.sma(volume, whaleLength)
+float relativeVolume = whaleVolumeAverage > 0 ? volume / whaleVolumeAverage : na
 bool isWhaleBuyVolume = buyVolume > buyVolumeSma + whaleMultiplier * buyVolumeStDev
 bool isWhaleSellVolume = sellVolume > sellVolumeSma + whaleMultiplier * sellVolumeStDev
 float totalVolume = buyVolume + sellVolume
+float dashboardBuyVolume = buyVolume
+float dashboardSellVolume = sellVolume
 float totalVolumeSma = ta.sma(totalVolume, 20)
-bool isVolumeClimax = totalVolume > totalVolumeSma * 1.5
+float volumeSma20 = ta.sma(volume, 20)
+bool isHighVolume = not na(volumeSma20) and volume > volumeSma20 * 1.8
+bool isLowVolume = not na(volumeSma20) and volume < volumeSma20 * 0.8
+bool isVolumeClimax = isHighVolume
 float institutionalVolumeBaseline = ta.sma(volume, institutionalVolumeSmaLength)
 bool institutionalVolumeSpike = not na(institutionalVolumeBaseline) and volume > institutionalVolumeBaseline * institutionalVolumeMultiplier
 float deltaVol = buyVolume - sellVolume
+cvd := cvd + nz(deltaVol)
 float deltaPercent = totalVolume > 0 ? (buyVolume - sellVolume) / totalVolume * 100 : 0.0
+float cumulativeDeltaPercent3 = math.sum(deltaPercent, 3)
+bool recentBuyClimax = (isHighVolume[1] and close[1] > open[1] and deltaPercent[1] > 0) or (isHighVolume[2] and close[2] > open[2] and deltaPercent[2] > 0) or (isHighVolume[3] and close[3] > open[3] and deltaPercent[3] > 0)
+bool noDemandBearishReversal = close < open and close < close[1] and isLowVolume and not na(relativeVolume) and relativeVolume < 0.8 and recentBuyClimax
 float closeLocationValue = candleRange > 0 ? ((close - low) - (high - close)) / candleRange : 0.0
 float moneyFlowVolume = closeLocationValue * nz(volume, 0)
 float cmfVolumeSum = math.sum(moneyFlowVolume, cmfLength)
 float cmfTotalVolume = math.sum(nz(volume, 0), cmfLength)
 float cmfValue = cmfTotalVolume > 0 ? cmfVolumeSum / cmfTotalVolume : 0.0
+float htfTrendEma = request.security(syminfo.tickerid, trendBiasTimeframe, ta.ema(close, trendBiasEmaLength), lookahead=barmerge.lookahead_off)
+string trendBias = na(htfTrendEma) ? "RANGE" : close > htfTrendEma ? "UP" : close < htfTrendEma ? "DOWN" : "RANGE"
 bool strongBullishClose = close > open and deltaPercent >= momentumDeltaThreshold and cmfValue >= momentumCmfThreshold
 bool bearTargetMomentumInvalidated = targetActive and targetDirection == -1 and bar_index == targetOriginBar + 1 and strongBullishClose
 
@@ -515,12 +559,47 @@ if sslSwept
 
 bool recentSslSweep = ta.barssince(sslSwept) <= internalStructureWindow
 bool recentBslSweep = ta.barssince(bslSwept) <= internalStructureWindow
-bool internalBullishChoch = useInternalStructureSignals and recentSslSweep and bullishChoch
+bool bullishInstitutionalSweepEvent = showInstitutionalVolumeMarkers and institutionalVolumeSpike and sslSwept and deltaPercent > 0
+bool recentBullishInstitutionalSweep = ta.barssince(bullishInstitutionalSweepEvent) <= internalStructureWindow
+bool internalBullishChoch = useInternalStructureSignals and bullishChoch and (recentSslSweep or recentBullishInstitutionalSweep)
 bool internalBearishChoch = useInternalStructureSignals and recentBslSweep and bearishChoch
+bool lowVolumeHighSideTest = (bslSwept or h4HighSweep) and volume < volumeSma20 * 0.9
+bool isExhaustionReversal = (lowVolumeHighSideTest[1] or lowVolumeHighSideTest[2]) and close < open and close < close[1] and deltaPercent < 0
+string exhDashboardStatus = ""
 
+if barstate.isconfirmed and isExhaustionReversal
+    box.delete(exhaustionSupplyBox)
+    bars_since_exh := 1
+    exh_high := high
+    exh_low := low
+    exhaustionSupplyBox := box.new(bar_index, exh_high, bar_index + 1, exh_low, xloc=xloc.bar_index, extend=extend.right, border_color=color.orange, bgcolor=color.new(color.orange, 88))
+    exhDashboardStatus := "AWAITING MOMENTUM"
+else if barstate.isconfirmed and bars_since_exh > 0
+    bars_since_exh += 1
+    if close > exh_high
+        bars_since_exh := 0
+        box.set_extend(exhaustionSupplyBox, extend.none)
+        box.set_right(exhaustionSupplyBox, bar_index)
+        exhDashboardStatus := "EXH INVALIDATED"
+    else if bars_since_exh >= 2 and bars_since_exh <= 4
+        bool exhaustionZoneHeld = high <= exh_high
+        exhDashboardStatus := exhaustionZoneHeld ? "EXH CONFIRMED" : "DISTRIB. ZONE"
+    else
+        bars_since_exh := 0
+        box.set_extend(exhaustionSupplyBox, extend.none)
+        box.set_right(exhaustionSupplyBox, bar_index)
+
+// CVD at the pivot bar diverging from the prior same-side pivot flags exhausting flow.
+bool bearishCvdDivergence = false
+bool bullishCvdDivergence = false
 if not na(pivotHigh)
     addOrStrengthenZone(pivotHigh, true, volume[rightBars] > volumeSma[rightBars] * highVolumeMultiplier)
     lastStructuralHigh := pivotHigh
+    float pivotHighCvd = cvd[rightBars]
+    if showCvdDivergence and not na(lastPivotHighPrice) and not na(pivotHighCvd) and not na(lastPivotHighCvd) and pivotHigh > lastPivotHighPrice and pivotHighCvd < lastPivotHighCvd
+        bearishCvdDivergence := true
+    lastPivotHighPrice := pivotHigh
+    lastPivotHighCvd := pivotHighCvd
     bearishObTop := high[rightBars]
     bearishObBottom := low[rightBars]
     bearishObActive := true
@@ -529,15 +608,23 @@ if not na(pivotHigh)
 if not na(pivotLow)
     addOrStrengthenZone(pivotLow, false, volume[rightBars] > volumeSma[rightBars] * highVolumeMultiplier)
     lastStructuralLow := pivotLow
+    float pivotLowCvd = cvd[rightBars]
+    if showCvdDivergence and not na(lastPivotLowPrice) and not na(pivotLowCvd) and not na(lastPivotLowCvd) and pivotLow < lastPivotLowPrice and pivotLowCvd > lastPivotLowCvd
+        bullishCvdDivergence := true
+    lastPivotLowPrice := pivotLow
+    lastPivotLowCvd := pivotLowCvd
     bullishObTop := high[rightBars]
     bullishObBottom := low[rightBars]
     bullishObActive := true
     float bullishObPower = not na(volumeSma[rightBars]) and volumeSma[rightBars] > 0 ? math.min(100.0, volume[rightBars] / volumeSma[rightBars] * 100) : 0.0
     addBullishOrderBlock(bullishObTop, bullishObBottom, bullishObPower, buyVolume[rightBars], totalVolume[rightBars], deltaVol[rightBars])
+bool recentBearishCvdDivergence = ta.barssince(bearishCvdDivergence) <= cvdDivergenceWindow
+bool recentBullishCvdDivergence = ta.barssince(bullishCvdDivergence) <= cvdDivergenceWindow
 
 bool isPotentialReversal = ta.barssince(sslSwept) <= 3 and volume > whaleVolumeAverage * 1.5 and deltaVol > 0
 bool isPotentialBearishReversal = ta.barssince(bslSwept) <= 3 and volume > whaleVolumeAverage * 1.5 and deltaVol < 0
 
+bool bullObInvalidatedThisBar = false
 bool insideBullishOb = false
 int bullishBlockCount = array.size(bullishObStack)
 if bullishBlockCount > 0
@@ -545,17 +632,22 @@ if bullishBlockCount > 0
         BullishOrderBlock block = array.get(bullishObStack, blockIndex)
         if block.active
             box.set_right(block.boxRef, bar_index)
-            if bullishBlockInvalidated(block)
+            if bullishBlockInvalidated(block, deltaPercent, relativeVolume, cumulativeDeltaPercent3)
                 block.active := false
+                bullObInvalidatedThisBar := true
                 box.set_extend(block.boxRef, extend.none)
                 box.set_bgcolor(block.boxRef, color.new(color.gray, 90))
                 label.delete(block.labelRef)
                 array.set(bullishObStack, blockIndex, block)
             else if low <= block.top and high >= block.bottom
                 insideBullishOb := true
+            else if block.reversalLabelPrinted
+                block.reversalLabelPrinted := false
+                array.set(bullishObStack, blockIndex, block)
             if block.active
                 label.set_x(block.labelRef, bar_index + 10)
                 label.set_y(block.labelRef, block.bottom)
+bool bearObInvalidatedThisBar = false
 bool insideBearishOb = false
 bool bearishObAbove = false
 float bearishObCeiling = na
@@ -565,8 +657,9 @@ if bearishBlockCount > 0
         BearishOrderBlock block = array.get(bearishObStack, blockIndex)
         if block.active
             box.set_right(block.boxRef, bar_index)
-            if bearishBlockInvalidated(block)
+            if bearishBlockInvalidated(block, deltaPercent, relativeVolume, cumulativeDeltaPercent3)
                 block.active := false
+                bearObInvalidatedThisBar := true
                 box.set_extend(block.boxRef, extend.none)
                 box.set_bgcolor(block.boxRef, color.new(color.gray, 90))
                 label.delete(block.labelRef)
@@ -575,6 +668,9 @@ if bearishBlockCount > 0
                 insideBearishOb := insideBearishOb or (high >= block.bottom and low <= block.top)
                 bearishObAbove := bearishObAbove or block.bottom > close
                 bearishObCeiling := na(bearishObCeiling) ? block.top : math.max(bearishObCeiling, block.top)
+                if not (high >= block.bottom and low <= block.top) and block.reversalLabelPrinted
+                    block.reversalLabelPrinted := false
+                    array.set(bearishObStack, blockIndex, block)
             if block.active
                 label.set_x(block.labelRef, bar_index + 10)
                 label.set_y(block.labelRef, block.top)
@@ -589,60 +685,161 @@ float lowerCorridorTolerance = not na(lower_corridor) ? lower_corridor * lineTou
 bool upperCorridorTouched = not na(upperCorridorTolerance) and high >= upper_corridor - upperCorridorTolerance and low <= upper_corridor + upperCorridorTolerance
 bool lowerCorridorTouched = not na(lowerCorridorTolerance) and low <= lower_corridor + lowerCorridorTolerance and high >= lower_corridor - lowerCorridorTolerance
 bool corridorTouchAlert = barstate.isconfirmed and (upperCorridorTouched or lowerCorridorTouched)
-float reversalBaselineProbability = totalLiquiditySweeps > 0 ? successfulSweepReversals * 100.0 / totalLiquiditySweeps : 0.0
-bool reversalAlignmentActive = isPotentialReversal or isPotentialBearishReversal
+float reversalLabelAtr = ta.atr(14)
+bool exhaustionTimeframe = (timeframe.isminutes and timeframe.multiplier >= 240) or timeframe.isdaily or timeframe.isweekly or timeframe.ismonthly
+float lowerWick = math.min(open, close) - low
+float upperWick = high - math.max(open, close)
+bool longLowerWick = candleRange > 0 and lowerWick / candleRange >= 0.55
+bool longUpperWick = candleRange > 0 and upperWick / candleRange >= 0.55
+bool exhaustionVolumeDrop = totalVolume < totalVolumeSma * 0.85
+bool exhaustionCooldownComplete = na(lastExhaustionLabelBar) or bar_index - lastExhaustionLabelBar > 5
+bool recentSslSweepForExhaustion = ta.barssince(sslSwept) <= 3
+bool recentBslSweepForExhaustion = ta.barssince(bslSwept) <= 3
+bool visibleLowerObTouchWick = candleRange > 0 and lowerWick / candleRange >= 0.45
+bool visibleUpperObTouchWick = candleRange > 0 and upperWick / candleRange >= 0.45
+bool bullishCloseNearRangeTop = candleRange > 0 and close > low + candleRange * 0.60
+bool bearishCloseNearRangeBottom = candleRange > 0 and close < low + candleRange * 0.40
+bool bullishObTouchCandidate = false
+bool bearishObTouchCandidate = false
+int currentBullishBlockCount = array.size(bullishObStack)
+if currentBullishBlockCount > 0
+    for blockIndex = 0 to currentBullishBlockCount - 1
+        BullishOrderBlock block = array.get(bullishObStack, blockIndex)
+        bool blockTouched = block.active and low <= block.top and high >= block.bottom
+        bullishObTouchCandidate := bullishObTouchCandidate or (blockTouched and not block.reversalLabelPrinted)
+int currentBearishBlockCount = array.size(bearishObStack)
+if currentBearishBlockCount > 0
+    for blockIndex = 0 to currentBearishBlockCount - 1
+        BearishOrderBlock block = array.get(bearishObStack, blockIndex)
+        bool blockTouched = block.active and high >= block.bottom and low <= block.top
+        bearishObTouchCandidate := bearishObTouchCandidate or (blockTouched and not block.reversalLabelPrinted)
+bool bullishObTouchReversalSetup = bullishObTouchCandidate and close > open and close > close[1] and bullishCloseNearRangeTop and visibleLowerObTouchWick and deltaVol > 0
+bool bearishObTouchReversalSetup = bearishObTouchCandidate and close < open and close < close[1] and bearishCloseNearRangeBottom and visibleUpperObTouchWick and deltaVol < 0
+bool obTouchReversalSetup = bullishObTouchReversalSetup or bearishObTouchReversalSetup
+bool bullishExhaustionSetup = exhaustionTimeframe and exhaustionCooldownComplete and (insideBullishOb or recentSslSweepForExhaustion) and longLowerWick and close > open and exhaustionVolumeDrop and deltaVol > 0
+bool bearishExhaustionSetup = exhaustionTimeframe and exhaustionCooldownComplete and (insideBearishOb or recentBslSweepForExhaustion) and longUpperWick and close < open and exhaustionVolumeDrop and deltaVol < 0
+bool bullishProbabilityLabel = isPotentialReversal or bullishExhaustionSetup or bullishObTouchReversalSetup
+bool bearishProbabilityLabel = isPotentialBearishReversal or bearishExhaustionSetup or bearishObTouchReversalSetup
+bool exhaustionReversalSetup = (bullishExhaustionSetup or bearishExhaustionSetup) and not obTouchReversalSetup
+float reversalBaselineProbability = obTouchReversalSetup ? 40.0 : totalLiquiditySweeps > 0 ? successfulSweepReversals * 100.0 / totalLiquiditySweeps : 0.0
+bool reversalAlignmentActive = bullishProbabilityLabel or bearishProbabilityLabel
 float deltaRatio = volume > 0 ? math.abs(deltaVol) / volume : 0.0
-float reversalVolumeWeight = reversalAlignmentActive ? volume > totalVolumeSma * 2.0 ? 15.0 : volume > totalVolumeSma * 1.5 ? 10.0 : 0.0 : 0.0
+float reversalVolumeWeight = reversalAlignmentActive and not exhaustionReversalSetup ? volume > totalVolumeSma * 2.0 ? 15.0 : volume > totalVolumeSma * 1.5 ? 10.0 : 0.0 : 0.0
 float reversalDeltaWeight = reversalAlignmentActive ? deltaRatio > 0.35 ? 15.0 : deltaRatio > 0.20 ? 10.0 : 0.0 : 0.0
-bool bullishH4ReversalConfluence = isPotentialReversal and not na(lower_corridor) and low <= lower_corridor
-bool bearishH4ReversalConfluence = isPotentialBearishReversal and not na(upper_corridor) and high >= upper_corridor
+bool bullishH4ReversalConfluence = not obTouchReversalSetup and bullishProbabilityLabel and not na(lower_corridor) and low <= lower_corridor
+bool bearishH4ReversalConfluence = not obTouchReversalSetup and bearishProbabilityLabel and not na(upper_corridor) and high >= upper_corridor
 float reversalH4Weight = bullishH4ReversalConfluence or bearishH4ReversalConfluence ? 15.0 : 0.0
-float reversalProbability = math.min(99.0, math.max(0.0, reversalBaselineProbability + reversalVolumeWeight + reversalDeltaWeight + reversalH4Weight))
+float reversalDivergenceWeight = (bullishProbabilityLabel and recentBullishCvdDivergence) or (bearishProbabilityLabel and recentBearishCvdDivergence) ? 15.0 : 0.0
+float reversalProbability = math.min(99.0, math.max(0.0, reversalBaselineProbability + reversalVolumeWeight + reversalDeltaWeight + reversalH4Weight + reversalDivergenceWeight))
 string reversalProbabilityText = str.tostring(math.round(reversalProbability)) + "%"
 bool weakReversalSignal = reversalProbability < 50.0
-bool highVolumeReversalSignal = totalVolume >= highVolumeReversalThreshold
+bool highVolumeReversalSignal = totalVolume >= highVolThreshold
 string reversalStrengthText = weakReversalSignal ? highVolumeReversalSignal ? "HIGH VOL" : "WEAK" : "STRONG"
-string bullishReversalLabelText = reversalProbabilityText + " " + reversalStrengthText + "\nBuy: " + compactVolume(buyVolume)
-string bearishReversalLabelText = reversalProbabilityText + " " + reversalStrengthText + "\nSell: " + compactVolume(sellVolume)
-color bullishReversalLabelColor = weakReversalSignal ? highVolumeReversalSignal ? color.blue : color.orange : color.teal
-color bearishReversalLabelColor = weakReversalSignal ? highVolumeReversalSignal ? color.purple : color.gray : color.orange
-bool reversalSignalStarted = (isPotentialReversal and not isPotentialReversal[1]) or (isPotentialBearishReversal and not isPotentialBearishReversal[1])
+float localBarTotalVol = volume[0]
+float localBarBuyVol = dashboardBuyVolume[0]
+float localBarSellVol = dashboardSellVolume[0]
+bool isCandleCloseBullish = close > low + candleRange * 0.60 and close > close[1]
+bool isCandleCloseBearish = close < low + candleRange * 0.40 and close < close[1]
+bool isHighVolClassification = weakReversalSignal and highVolumeReversalSignal
+string dynamicLabelText = ""
+color finalLabelColor = color.gray
+color finalTextColor = color.white
+bool drawBullishProbabilityLabel = bullishProbabilityLabel and not bullishProbabilityLabel[1] and isCandleCloseBullish
+bool drawBearishProbabilityLabel = bearishProbabilityLabel and not bearishProbabilityLabel[1] and isCandleCloseBearish and close < open
+if drawBullishProbabilityLabel
+    dynamicLabelText := reversalProbabilityText + " " + reversalStrengthText + "\nBuy: " + compactVolume(localBarBuyVol)
+    finalLabelColor := isHighVolClassification ? color.blue : weakReversalSignal ? color.orange : color.teal
+if drawBearishProbabilityLabel
+    dynamicLabelText := reversalProbabilityText + " " + reversalStrengthText + "\nSell: " + compactVolume(localBarSellVol)
+    finalLabelColor := isHighVolClassification ? color.purple : weakReversalSignal ? color.gray : color.orange
+bool reversalSignalStarted = (bullishProbabilityLabel and not bullishProbabilityLabel[1]) or (bearishProbabilityLabel and not bearishProbabilityLabel[1])
 if barstate.isconfirmed and reversalSignalStarted
     lastSignalH4HighDist := pctDropFromHigh
     lastSignalH4LowDist := pctRiseFromLow
     lastSignalProbability := reversalProbability
     lastSignalBiasStr := reversalProbability > 55 ? "DIDELĖ TIKIMYBĖ" : reversalProbability < 40 ? "MAŽA TIKIMYBĖ" : "VIDUTINĖ TIKIMYBĖ"
-    lastSignalDirectionStr := isPotentialBearishReversal ? " (BEAR REVERSAL)" : " (BULL REVERSAL)"
-if isPotentialReversal
-    float bullishReversalLabelOffset = labelCollisionOffset
-    float bullishReversalLabelPrice = low - bullishReversalLabelOffset
-    bool bullishReversalWouldOverlap = not na(lastStructureLabelPrice) and not na(lastStructureLabelBar) and bar_index - lastStructureLabelBar <= 10 and math.abs(bullishReversalLabelPrice - lastStructureLabelPrice) < bullishReversalLabelOffset
-    if bullishReversalWouldOverlap
-        bullishReversalLabelPrice := lastStructureLabelPrice - bullishReversalLabelOffset
-    label.new(bar_index, bullishReversalLabelPrice, bullishReversalLabelText, style=label.style_label_up, color=bullishReversalLabelColor, textcolor=color.white, size=size.small)
+    lastSignalDirectionStr := bearishProbabilityLabel ? " (BEAR REVERSAL)" : " (BULL REVERSAL)"
+if barstate.isconfirmed and drawBullishProbabilityLabel and dynamicLabelText != ""
+    float bullishReversalLabelPrice = low - reversalLabelAtr * 0.4
+    label.delete(latestBullishProbabilityLabel)
+    latestBullishProbabilityLabel := label.new(bar_index, bullishReversalLabelPrice, dynamicLabelText, yloc=yloc.price, style=label.style_label_up, color=finalLabelColor, textcolor=finalTextColor, size=size.small)
     lastStructureLabelPrice := bullishReversalLabelPrice
     lastStructureLabelBar := bar_index
-if isPotentialBearishReversal
-    float bearishReversalLabelOffset = labelCollisionOffset
-    float bearishReversalLabelPrice = high + bearishReversalLabelOffset
-    bool bearishReversalWouldOverlap = not na(lastStructureLabelPrice) and not na(lastStructureLabelBar) and bar_index - lastStructureLabelBar <= 10 and math.abs(bearishReversalLabelPrice - lastStructureLabelPrice) < bearishReversalLabelOffset
-    if bearishReversalWouldOverlap
-        bearishReversalLabelPrice := lastStructureLabelPrice + bearishReversalLabelOffset
-    label.new(bar_index, bearishReversalLabelPrice, bearishReversalLabelText, style=label.style_label_down, color=bearishReversalLabelColor, textcolor=color.white, size=size.small)
+if barstate.isconfirmed and drawBearishProbabilityLabel and dynamicLabelText != ""
+    float bearishReversalLabelPrice = high + reversalLabelAtr * 0.4
+    label.delete(latestBearishProbabilityLabel)
+    latestBearishProbabilityLabel := label.new(bar_index, bearishReversalLabelPrice, dynamicLabelText, yloc=yloc.price, style=label.style_label_down, color=finalLabelColor, textcolor=finalTextColor, size=size.small)
     lastStructureLabelPrice := bearishReversalLabelPrice
     lastStructureLabelBar := bar_index
+if barstate.isconfirmed and exhaustionReversalSetup
+    lastExhaustionLabelBar := bar_index
+if barstate.isconfirmed and bullishObTouchReversalSetup
+    if currentBullishBlockCount > 0
+        for blockIndex = 0 to currentBullishBlockCount - 1
+            BullishOrderBlock block = array.get(bullishObStack, blockIndex)
+            if block.active and low <= block.top and high >= block.bottom and not block.reversalLabelPrinted
+                block.reversalLabelPrinted := true
+                array.set(bullishObStack, blockIndex, block)
+if barstate.isconfirmed and bearishObTouchReversalSetup
+    if currentBearishBlockCount > 0
+        for blockIndex = 0 to currentBearishBlockCount - 1
+            BearishOrderBlock block = array.get(bearishObStack, blockIndex)
+            if block.active and high >= block.bottom and low <= block.top and not block.reversalLabelPrinted
+                block.reversalLabelPrinted := true
+                array.set(bearishObStack, blockIndex, block)
 
 bool wheelExecutionAlert = false
 string wheelDashboardState = "NONE"
 
-float buyVolumeAverage = ta.sma(ltf_buy_vol, absorptionSmaLength)
-float sellVolumeAverage = ta.sma(ltf_sell_vol, absorptionSmaLength)
-float candleBody = math.abs(close - open)
-float averageCandleBody = ta.sma(candleBody, absorptionSmaLength)
-bool absorptionAlert = barstate.isconfirmed and ltf_buy_vol > buyVolumeAverage * absorptionVolumeMultiplier and ltf_sell_vol > sellVolumeAverage * absorptionVolumeMultiplier and candleBody <= averageCandleBody
-bool institutionalSweepMarker = showInstitutionalVolumeMarkers and institutionalVolumeSpike and (sslSwept or bslSwept or absorptionAlert)
-plotshape(institutionalSweepMarker and deltaPercent >= 0, "Bullish institutional volume", shape.diamond, location.belowbar, color=color.new(bslColor, 0), size=size.tiny)
-plotshape(institutionalSweepMarker and deltaPercent < 0, "Bearish institutional volume", shape.diamond, location.abovebar, color=color.new(sslColor, 0), size=size.tiny)
+float upperWickForAbsorption = high - math.max(open, close)
+bool institutionalSweepMarker = showInstitutionalVolumeMarkers and institutionalVolumeSpike and (sslSwept or bslSwept)
+bool bullishInstitutionalSweep = institutionalSweepMarker and deltaPercent > 0
+bool h4UpperCorridorConfluence = not na(fixedHigh) and not na(upper_corridor) and high >= fixedHigh
+bool deltaExhaustion = bullishInstitutionalSweep and close[1] > open[1] and deltaPercent < deltaPercent[1]
+bool isAbsorption = h4UpperCorridorConfluence and deltaExhaustion
+bool absorptionAlert = barstate.isconfirmed and isAbsorption
+
+int absorptionCeilingCount = array.size(absorptionCeilingLines)
+if absorptionCeilingCount > 0
+    for ceilingIndex = 0 to absorptionCeilingCount - 1
+        line ceilingLine = array.get(absorptionCeilingLines, ceilingIndex)
+        float ceilingPrice = array.get(absorptionCeilingPrices, ceilingIndex)
+        bool ceilingIsActive = array.get(absorptionCeilingActive, ceilingIndex)
+        if ceilingIsActive and close > ceilingPrice
+            line.set_extend(ceilingLine, extend.none)
+            line.set_x2(ceilingLine, bar_index)
+            line.set_color(ceilingLine, color.gray)
+            line.set_style(ceilingLine, line.style_dashed)
+            line.set_width(ceilingLine, 1)
+            array.set(absorptionCeilingActive, ceilingIndex, false)
+
+if barstate.isconfirmed and isAbsorption
+    line newAbsorptionCeiling = line.new(x1=bar_index, y1=high, x2=bar_index + 1, y2=high, xloc=xloc.bar_index, extend=extend.right, color=color.orange, width=2)
+    array.push(absorptionCeilingLines, newAbsorptionCeiling)
+    array.push(absorptionCeilingPrices, high)
+    array.push(absorptionCeilingActive, true)
+    if array.size(absorptionCeilingLines) > 20
+        line.delete(array.shift(absorptionCeilingLines))
+        array.shift(absorptionCeilingPrices)
+        array.shift(absorptionCeilingActive)
+
+plotshape(isAbsorption, title="VOL CLIMAX ABS", style=shape.circle, location=location.abovebar, color=color.yellow, size=size.small)
+plotshape(isExhaustionReversal, title="Exhaustion reversal", style=shape.triangledown, location=location.abovebar, color=color.orange, size=size.small, text="EXH", textcolor=color.white)
+plotshape(showCvdDivergence and bullishCvdDivergence, "Bullish CVD divergence", shape.triangleup, location.belowbar, color=color.new(bslColor, 0), size=size.tiny, offset=-rightBars)
+plotshape(showCvdDivergence and bearishCvdDivergence, "Bearish CVD divergence", shape.triangledown, location.abovebar, color=color.new(sslColor, 0), size=size.tiny, offset=-rightBars)
+
+// Hidden per-candle metrics for hover inspection and CSV export; never drawn on the chart.
+plot(exportAnalysisData ? reversalProbability : na, "AN Reversal Probability %", display=display.data_window)
+plot(exportAnalysisData ? deltaPercent : na, "AN Delta %", display=display.data_window)
+plot(exportAnalysisData ? cmfValue : na, "AN CMF", display=display.data_window)
+plot(exportAnalysisData ? cvd : na, "AN CVD", display=display.data_window)
+plot(exportAnalysisData ? relativeVolume : na, "AN RVOL", display=display.data_window)
+plot(exportAnalysisData ? dashboardBuyVolume : na, "AN Buy Volume", display=display.data_window)
+plot(exportAnalysisData ? dashboardSellVolume : na, "AN Sell Volume", display=display.data_window)
+plot(exportAnalysisData ? (isTrackingReversal ? maxPenetration : na) : na, "AN Sweep Penetration %", display=display.data_window)
+plot(exportAnalysisData ? (bullishProbabilityLabel ? 1 : bearishProbabilityLabel ? -1 : 0) : na, "AN Reversal Flag (1 bull / -1 bear)", display=display.data_window)
+plot(exportAnalysisData ? (bullishCvdDivergence ? 1 : bearishCvdDivergence ? -1 : 0) : na, "AN CVD Divergence Flag", display=display.data_window)
+plot(exportAnalysisData ? (trendBias == "UP" ? 1 : trendBias == "DOWN" ? -1 : 0) : na, "AN HTF Trend (1 up / -1 down)", display=display.data_window)
 
 alertcondition(volumeThresholdAlert, "Relative institutional volume spike", "Volume exceeded the configured local SMA multiplier on {{ticker}}.")
 alertcondition(corridorTouchAlert, "H4 corridor touch", "Price touched the H4 statistical corridor on {{ticker}}.")
@@ -651,6 +848,8 @@ alertcondition(internalBullishChoch, "LTF bullish internal CHoCH", "Bullish inte
 alertcondition(internalBearishChoch, "LTF bearish internal CHoCH", "Bearish internal structure shifted after a buy-side liquidity sweep on {{ticker}}.")
 alertcondition(isPotentialReversal, "WHEEL Buy / Reversal Alignment", "Institutional bullish trend shift aligned after a sell-side liquidity sweep on {{ticker}}.")
 alertcondition(isPotentialBearishReversal, "WHEEL Sell / Bearish Reversal Alignment", "Institutional top-side reversal confirmed by aggressive negative Delta after a high-volume buy-side liquidity sweep on {{ticker}}.")
+alertcondition(bullishCvdDivergence, "Bullish CVD divergence", "Bullish CVD divergence: price made a lower low while CVD made a higher low on {{ticker}}.")
+alertcondition(bearishCvdDivergence, "Bearish CVD divergence", "Bearish CVD divergence: price made a higher high while CVD made a lower high on {{ticker}}.")
 
 bool bearishBos = not na(lastStructuralLow) and close < lastStructuralLow and close[1] >= lastStructuralLow
 if bearishBos
@@ -822,26 +1021,12 @@ if internalBullishChoch
 if internalBearishChoch
     barSignal := barSignal == "" ? "LTF BEAR CHoCH -> EARLY ENTRY" : barSignal + " | LTF BEAR CHoCH"
 if showChochLabels and internalBullishChoch
-    float bullChochLabelOffset = labelCollisionOffset
-    float bullChochLabelPrice = low - bullChochLabelOffset
-    bool bullChochWouldOverlap = not na(lastStructureLabelPrice) and not na(lastStructureLabelBar) and bar_index - lastStructureLabelBar <= 10 and math.abs(bullChochLabelPrice - lastStructureLabelPrice) < bullChochLabelOffset
-    if bullChochWouldOverlap
-        bullChochLabelPrice := lastStructureLabelPrice - bullChochLabelOffset
-    label.new(bar_index, bullChochLabelPrice, structureLabelText("LTF Bull CHoCH", totalVolume, deltaPercent), style=label.style_label_up, color=bslColor, textcolor=color.white, size=size.tiny)
-    lastStructureLabelPrice := bullChochLabelPrice
-    lastStructureLabelBar := bar_index
-if showChochLabels and internalBearishChoch and not bearishStructureLabelDrawn
-    float bearChochLabelOffset = labelCollisionOffset
-    float bearChochLabelPrice = high + bearChochLabelOffset
-    bool bearChochWouldOverlap = not na(lastStructureLabelPrice) and not na(lastStructureLabelBar) and bar_index - lastStructureLabelBar <= 10 and math.abs(bearChochLabelPrice - lastStructureLabelPrice) < bearChochLabelOffset
-    if bearChochWouldOverlap
-        bearChochLabelPrice := lastStructureLabelPrice + bearChochLabelOffset
-    label.new(bar_index, bearChochLabelPrice, structureLabelText("LTF Bear CHoCH", totalVolume, deltaPercent), style=label.style_label_down, color=sslColor, textcolor=color.white, size=size.tiny)
-    lastStructureLabelPrice := bearChochLabelPrice
-    lastStructureLabelBar := bar_index
+    label.new(bar_index, low, structureLabelText("LTF Bull CHoCH", totalVolume, deltaPercent), yloc=yloc.belowbar, style=label.style_label_up, color=bslColor, textcolor=color.white, size=size.tiny)
+if showChochLabels and internalBearishChoch and not bearishStructureLabelDrawn and not drawBearishProbabilityLabel
+    label.new(bar_index, high, structureLabelText("LTF Bear CHoCH", totalVolume, deltaPercent), yloc=yloc.abovebar, style=label.style_label_down, color=sslColor, textcolor=color.white, size=size.tiny)
 
 var table infoPanel = table.new(position.bottom_right, 7, 11, frame_color=color.new(chart.fg_color, 60), frame_width=1, border_color=color.new(chart.fg_color, 80), border_width=1)
-var table h4StatsPanel = table.new(position.top_right, 2, 4, frame_color=color.new(chart.fg_color, 60), frame_width=1, border_color=color.new(chart.fg_color, 80), border_width=1)
+var table h4StatsPanel = table.new(position.top_right, 2, 5, frame_color=color.new(chart.fg_color, 60), frame_width=1, border_color=color.new(chart.fg_color, 80), border_width=1)
 if targetActive and not na(targetLabel)
     label.set_x(targetLabel, bar_index + 10)
     label.set_y(targetLabel, activeTarget)
@@ -856,12 +1041,21 @@ if barstate.islast or barstate.islastconfirmedhistory
     color probabilityBackground = highProbabilityReversal ? color.new(statCorridorColor, 0) : displayedProbability >= 50 ? color.new(color.teal, 55) : color.new(color.black, 25)
     table.cell(h4StatsPanel, 0, 0, "H4 Lygių Analizė", text_color=color.white, text_size=size.small, bgcolor=color.black)
     table.cell(h4StatsPanel, 1, 0, "Live", text_color=color.white, text_size=size.small, bgcolor=color.black)
-    table.cell(h4StatsPanel, 0, 1, "Atstumas nuo H4 High", text_color=chart.fg_color, text_size=size.small, bgcolor=color.new(color.black, 25))
-    table.cell(h4StatsPanel, 1, 1, na(displayedH4HighDist) ? "-" : str.tostring(displayedH4HighDist, "#.##") + "%", text_color=statCorridorColor, text_size=size.small, bgcolor=color.new(color.black, 25))
-    table.cell(h4StatsPanel, 0, 2, "Atstumas nuo H4 Low", text_color=chart.fg_color, text_size=size.small, bgcolor=color.new(color.black, 25))
-    table.cell(h4StatsPanel, 1, 2, na(displayedH4LowDist) ? "-" : str.tostring(displayedH4LowDist, "#.##") + "%", text_color=statCorridorColor, text_size=size.small, bgcolor=color.new(color.black, 25))
-    table.cell(h4StatsPanel, 0, 3, "Apsisukimo tikimybė:", text_color=chart.fg_color, text_size=size.small, bgcolor=color.new(color.black, 25))
-    table.cell(h4StatsPanel, 1, 3, probabilityText, text_color=highProbabilityReversal ? color.black : chart.fg_color, text_size=size.small, bgcolor=probabilityBackground)
+    string h4DistanceText = (na(displayedH4HighDist) ? "-" : str.tostring(displayedH4HighDist, "#.##") + "%") + " / " + (na(displayedH4LowDist) ? "-" : str.tostring(displayedH4LowDist, "#.##") + "%")
+    table.cell(h4StatsPanel, 0, 1, "Atstumas nuo H4 High / Low", text_color=chart.fg_color, text_size=size.small, bgcolor=color.new(color.black, 25))
+    table.cell(h4StatsPanel, 1, 1, h4DistanceText, text_color=statCorridorColor, text_size=size.small, bgcolor=color.new(color.black, 25))
+    table.cell(h4StatsPanel, 0, 2, "Apsisukimo tikimybė:", text_color=chart.fg_color, text_size=size.small, bgcolor=color.new(color.black, 25))
+    table.cell(h4StatsPanel, 1, 2, probabilityText, text_color=highProbabilityReversal ? color.black : chart.fg_color, text_size=size.small, bgcolor=probabilityBackground)
+    color trendBiasColor = trendBias == "UP" ? bslColor : trendBias == "DOWN" ? sslColor : color.gray
+    string trendBiasText = trendBias == "UP" ? "AUKŠTYN" : trendBias == "DOWN" ? "ŽEMYN" : "DIAPAZONAS"
+    table.cell(h4StatsPanel, 0, 3, "Trendas (HTF)", text_color=chart.fg_color, text_size=size.small, bgcolor=color.new(color.black, 25))
+    table.cell(h4StatsPanel, 1, 3, trendBiasText, text_color=trendBiasColor, text_size=size.small, bgcolor=color.new(color.black, 25))
+    string cvdDivergenceText = recentBearishCvdDivergence ? "BEAR DIV" : recentBullishCvdDivergence ? "BULL DIV" : "-"
+    color cvdDivergenceColor = recentBearishCvdDivergence ? sslColor : recentBullishCvdDivergence ? bslColor : chart.fg_color
+    color relativeVolumeColor = na(relativeVolume) ? chart.fg_color : relativeVolume >= 1.5 ? bslColor : relativeVolume < 1.0 ? color.gray : chart.fg_color
+    string relativeVolumeText = na(relativeVolume) ? "-" : str.tostring(relativeVolume, "#.##") + "x"
+    table.cell(h4StatsPanel, 0, 4, "CVD / RVOL (x vidurkis)", text_color=chart.fg_color, text_size=size.small, bgcolor=color.new(color.black, 25))
+    table.cell(h4StatsPanel, 1, 4, cvdDivergenceText + " / " + relativeVolumeText, text_color=cvdDivergenceText == "-" ? relativeVolumeColor : cvdDivergenceColor, text_size=size.small, bgcolor=color.new(color.black, 25))
     table.cell(infoPanel, 0, 0, "Bar", text_color=chart.fg_color, text_size=size.tiny, bgcolor=color.new(color.black, 15), text_halign=text.align_center)
     table.cell(infoPanel, 1, 0, "BUY (V)", text_color=bslColor, text_size=size.tiny, bgcolor=color.new(color.black, 15), text_halign=text.align_center)
     table.cell(infoPanel, 2, 0, "SELL (V)", text_color=sslColor, text_size=size.tiny, bgcolor=color.new(color.black, 15), text_halign=text.align_center)
@@ -873,8 +1067,8 @@ if barstate.islast or barstate.islastconfirmedhistory
         int row = candleIndex + 1
         bool hasCandle = not na(close[candleIndex])
         int candleBar = bar_index - candleIndex
-        float candleBuy = buyVolume[candleIndex]
-        float candleSell = sellVolume[candleIndex]
+        float candleBuy = dashboardBuyVolume[candleIndex]
+        float candleSell = dashboardSellVolume[candleIndex]
         float candleTotal = totalVolume[candleIndex]
         float candleDelta = deltaPercent[candleIndex]
         float candleCmf = cmfValue[candleIndex]
@@ -888,6 +1082,9 @@ if barstate.islast or barstate.islastconfirmedhistory
         bool candleInternalBullishChoch = hasCandle and internalBullishChoch[candleIndex]
         bool candleInternalBearishChoch = hasCandle and internalBearishChoch[candleIndex]
         bool candleInstitutionalVolumeSpike = hasCandle and institutionalVolumeSpike[candleIndex]
+        bool candleNoDemandBearishReversal = hasCandle and noDemandBearishReversal[candleIndex]
+        bool candleBullishCvdDiv = hasCandle and bullishCvdDivergence[candleIndex]
+        bool candleBearishCvdDiv = hasCandle and bearishCvdDivergence[candleIndex]
         float candleReversalProbability = reversalProbability[candleIndex]
         // The resistance cap is live-state only; never retroactively replace C2-C10 history.
         bool candleSellSideBiasLocked = candleIndex == 0 and sellSideBiasLocked
@@ -899,6 +1096,7 @@ if barstate.islast or barstate.islastconfirmedhistory
         bool absorptionBuy = hasCandle and isRedCandle and candleDelta > 0 and candleCmf < 0.02 and buyRatio[candleIndex] <= 0.40 and isVolumeClimax[candleIndex]
         bool absorptionSell = hasCandle and isGreenCandle and candleDelta < 0 and candleCmf > -0.02 and buyRatio[candleIndex] >= 0.60 and isVolumeClimax[candleIndex]
         string liquiditySignal = hasCandle ? barSignal[candleIndex] : ""
+        string candleExhStatus = hasCandle ? exhDashboardStatus[candleIndex] : ""
         string internalStructureText = candleInternalBullishChoch ? "LTF BULL CHoCH" : candleInternalBearishChoch ? "LTF BEAR CHoCH" : ""
         string whaleBuyText = whaleBuy ? candleBearishObAbove ? "WHALE BUY -> TGT: BEAR OB " + str.tostring(candleBearishObPrice, format.mintick) : "WHALE BUY" : ""
         string signalText = candlePotentialBearishReversal ? "🔄 BEARISH REVERSAL (Prob: " + str.tostring(candleReversalProbability, "#.##") + "%)" + (internalStructureText != "" ? " | " + internalStructureText : "") : candlePotentialReversal ? "🔄 REVERSAL ALIGNMENT (Prob: " + str.tostring(candleReversalProbability, "#.##") + "%)" + (internalStructureText != "" ? " | " + internalStructureText : "") : candleSellSideBiasLocked ? "SELL-SIDE BIAS / BEAR OB CAP" : liquiditySignal != "" ? liquiditySignal : internalStructureText != "" ? internalStructureText + " -> EARLY ENTRY" : whaleBuy ? whaleBuyText : whaleSell ? "WHALE SELL" : bullishObTestingWaiting ? "🐂 BULL OB TEST / AWAITING DELTA" : bearishObTestingWaiting ? "🐻 BEAR OB TEST / AWAITING DELTA" : candleInstitutionalVolumeSpike ? "INSTITUTIONAL VOLUME SPIKE" : absorptionBuy ? "AbBuyV" : absorptionSell ? "AbSellV" : ""
@@ -927,6 +1125,13 @@ if barstate.islast or barstate.islastconfirmedhistory
                 signalText := supersededTargetOutcome
             if isObReachedRow
                 signalText := "OB REACHED -> WAITING FOR CONFIRMATION"
+        if candleBullishCvdDiv or candleBearishCvdDiv
+            string cvdDivTag = candleBullishCvdDiv ? "BULL DIV" : "BEAR DIV"
+            signalText := signalText == "" ? cvdDivTag : signalText + " | " + cvdDivTag
+        if candleNoDemandBearishReversal
+            signalText := signalText == "" ? "NO DEMAND" : signalText + " | NO DEMAND"
+        if candleExhStatus != ""
+            signalText := candleExhStatus
         if candleIndex == 0
             wheelDashboardState := str.contains(signalText, "WHALE BUY") ? "BUY" : str.contains(signalText, "WHALE SELL") ? "SELL" : "NONE"
         color deltaColor = candleDelta >= 0 ? bslColor : sslColor
@@ -971,3 +1176,63 @@ if historicalLowZoneHit and array.size(historicalSweepsLow) > 0
 if confirmedH4Reversal
     float historicalAverage = confirmedReversalType == "High" ? avgHighSweepPercent : avgLowSweepPercent
     alert("REVERSAL CONFIRMED | Type: " + confirmedReversalType + " | Peak Penetration: " + str.tostring(maxPenetration, "#.##") + "% | Historic Average for this Asset: " + str.tostring(historicalAverage, "#.##") + "%", alert.freq_once_per_bar_close)
+
+// ==========================================
+// REVERSAL FAILURE LOGGING SYSTEM (invalidated Order Blocks)
+// ==========================================
+var int[] failed_times = array.new_int(0)
+var float[] failed_closes = array.new_float(0)
+var float[] failed_volumes = array.new_float(0)
+var string[] failed_types = array.new_string(0)
+
+// Wired to the live OB invalidation flags: a grayed-out block is a failed structural reversal.
+bool is_bull_ob_invalidated = bullObInvalidatedThisBar
+bool is_bear_ob_invalidated = bearObInvalidatedThisBar
+bool reversal_failed = is_bull_ob_invalidated or is_bear_ob_invalidated
+string failure_type = is_bull_ob_invalidated ? "Bull OB Fail" : "Bear OB Fail"
+
+if showReversalFailureLog and reversal_failed and barstate.isconfirmed
+    array.push(failed_times, time)
+    array.push(failed_closes, close)
+    array.push(failed_volumes, volume)
+    array.push(failed_types, failure_type)
+    if array.size(failed_times) > 200
+        array.shift(failed_times)
+        array.shift(failed_closes)
+        array.shift(failed_volumes)
+        array.shift(failed_types)
+    log.error("FAILURE: " + failure_type + " | Time: " + str.format_time(time, "yyyy-MM-dd HH:mm") + " | Close: " + str.tostring(close, format.mintick) + " | Vol: " + compactVolume(volume))
+
+plotshape(showReversalFailureLog and is_bull_ob_invalidated, title="Bull OB Invalidated", style=shape.xcross, location=location.belowbar, color=color.gray, size=size.small)
+plotshape(showReversalFailureLog and is_bear_ob_invalidated, title="Bear OB Invalidated", style=shape.xcross, location=location.abovebar, color=color.gray, size=size.small)
+
+string failureDeltaText = (deltaPercent >= 0 ? "+" : "") + str.tostring(deltaPercent, "#.##") + "%"
+string failureRvolText = na(relativeVolume) ? "-" : str.tostring(relativeVolume, "#.##") + "x"
+string failureDiagnosticText = "OB FAILURE LOG\nBuy Vol: " + compactVolume(dashboardBuyVolume) + "\nSell Vol: " + compactVolume(dashboardSellVolume) + "\nDelta: " + failureDeltaText + "\nCVD: " + compactVolume(cvd) + "\nRVOL: " + failureRvolText
+float failureDiagnosticOffset = ta.atr(14) * 1.5
+
+if showReversalFailureLog and is_bull_ob_invalidated and barstate.isconfirmed
+    label.new(bar_index, low - failureDiagnosticOffset, failureDiagnosticText, yloc=yloc.price, style=label.style_label_up, color=color.new(color.blue, 30), textcolor=color.white, size=size.small)
+if showReversalFailureLog and is_bear_ob_invalidated and barstate.isconfirmed
+    label.new(bar_index, high + failureDiagnosticOffset, failureDiagnosticText, yloc=yloc.price, style=label.style_label_down, color=color.new(color.blue, 30), textcolor=color.white, size=size.small)
+
+var table log_table = na
+if showReversalFailureTable and na(log_table)
+    log_table := table.new(position.bottom_left, 4, 6, bgcolor=color.new(color.black, 15), border_color=color.new(color.gray, 50), border_width=1)
+else if not showReversalFailureTable and not na(log_table)
+    table.delete(log_table)
+    log_table := na
+
+if showReversalFailureTable and not na(log_table) and (barstate.islast or barstate.islastconfirmedhistory)
+    table.cell(log_table, 0, 0, "Time", text_color=color.white, bgcolor=color.navy)
+    table.cell(log_table, 1, 0, "Type", text_color=color.white, bgcolor=color.navy)
+    table.cell(log_table, 2, 0, "Close Price", text_color=color.white, bgcolor=color.navy)
+    table.cell(log_table, 3, 0, "Volume", text_color=color.white, bgcolor=color.navy)
+    int total_failures = array.size(failed_times)
+    if total_failures > 0
+        for i = 0 to math.min(total_failures - 1, 4)
+            int idx = total_failures - 1 - i
+            table.cell(log_table, 0, i + 1, str.format_time(array.get(failed_times, idx), "MM-dd HH:mm"), text_color=color.white)
+            table.cell(log_table, 1, i + 1, array.get(failed_types, idx), text_color=array.get(failed_types, idx) == "Bull OB Fail" ? color.red : color.orange)
+            table.cell(log_table, 2, i + 1, str.tostring(array.get(failed_closes, idx), format.mintick), text_color=color.white)
+            table.cell(log_table, 3, i + 1, compactVolume(array.get(failed_volumes, idx)), text_color=color.white)

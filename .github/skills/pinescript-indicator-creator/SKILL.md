@@ -51,9 +51,9 @@ Use this skill for changes to `PineScripts/Last Candle Volume Info.pine`.
 - A bull sweep requires positive Delta, positive CMF, or CMF recovery from below zero when `requireBullConfirmation` is enabled.
 - A bull sweep with Delta below `negativeDeltaThreshold` and CMF below zero is failed: report `SWEEP FAILED -> CONTINUATION DOWN` and seek an SSL bear target.
 - Highlight reversal signals with solid orange only when their Delta and CMF agree with the reversal direction.
-- Reversal probability labels use the same `totalVolume` and `compactVolume()` formatting as the live `C1` dashboard Total column: `39% WEAK\nVol: 9.38M`.
-- Classify labels with the configurable `High-volume reversal threshold` input, default `10M`: probability below 50% is `WEAK` when below the threshold, `HIGH VOL` when at or above it, and `STRONG` when probability is at least 50%.
-- Keep weak bullish labels orange and weak bearish labels gray. Low-probability `HIGH VOL` labels are blue for bullish reversals and purple for bearish reversals.
+- Reversal probability labels show probability, the strength word, and the directional volume: `55% STRONG\nBuy: 140.76M` for bullish and `43% HIGH VOL\nSell: 229.53M` for bearish. Directional volume reuses the live `C1` dashboard Buy/Sell estimate and `compactVolume()` formatting.
+- Classify labels with the timeframe-scaled `High-vol threshold` inputs (three buckets: `≤ 15m`, `16m–1H`, `2H+`), each default `10M`. The active bucket is auto-selected from the chart timeframe. Probability below 50% is `WEAK` when total volume is below the bucket threshold, `HIGH VOL` when at or above it, and `STRONG` when probability is at least 50%.
+- Keep weak bullish labels orange and weak bearish labels gray. Low-probability `HIGH VOL` labels are blue for bullish reversals and purple for bearish reversals. Strong bullish labels are teal, strong bearish labels orange.
 
 ## Dashboard Contract
 
@@ -62,6 +62,16 @@ Use this skill for changes to `PineScripts/Last Candle Volume Info.pine`.
 - The Signal column owns sweep, target, target-hit, distance-filter, failure, and reversal messages. Do not replace the candle-volume dashboard with a separate table.
 - Keep target-hit rows blue and cancelled-target origin rows orange.
 - Persist superseded target outcomes by origin bar. A target superseded during bearish expansion must remain `SUPERCEDED -> BEARISH MOMENTUM` with a solid dark-charcoal background, rather than being recomputed by later candles.
+
+## Flow & Trend Confirmation
+
+- Maintain a running Cumulative Volume Delta (`cvd += nz(deltaVol)`) from the estimated per-candle delta. Its absolute value is meaningless; only its slope versus price matters.
+- Detect CVD divergence at confirmed pivots using the CVD value at the pivot bar (`cvd[rightBars]`) versus the prior same-side pivot: a higher price high with a lower CVD high is bearish divergence; a lower price low with a higher CVD low is bullish divergence.
+- Mark divergences on chart with a small triangle offset back to the pivot bar (green up below price for bullish, red down above price for bearish) and add `+15` to the reversal-probability score when a divergence inside `cvdDivergenceWindow` agrees with the reversal-label direction.
+- Tag the matching dashboard `Signal` row with `| BULL DIV` or `| BEAR DIV` (or the tag alone when the row had no other signal). Do not let the tag change the row background or WHALE alert parsing.
+- Compute an HTF trend bias from an EMA on `trendBiasTimeframe` (default 4H): `UP` above, `DOWN` below, `RANGE` otherwise. Use it as context only; reversals against the bias are counter-trend.
+- Compute RVOL as current volume divided by the `whaleLength` volume average; green at or above 1.5x, gray below 1.0x.
+- Show the HTF trend bias, CVD divergence state (`BULL DIV` / `BEAR DIV` / `-`), and RVOL as extra rows in the top-right H4 panel; never add them as columns to the bottom-right seven-column dashboard.
 
 ## Change Checklist
 

@@ -81,13 +81,22 @@ Spalva nurodo lygio tipą ir krypties kontekstą. Linijos stilius nurodo būsen�
 - "Atstumas nuo H4 High": atstumas procentais iki paskutinio H4 High.
 - "Atstumas nuo H4 Low": atstumas procentais iki paskutinio H4 Low.
 - "Apsisukimo tikimybė": paskutinio reversal signalo tikimybė ir jo kryptis, arba live reikšmė, jei signalo dar nebuvo.
+- "Trendas (HTF)": aukštesnio TF (numatyta 4H) EMA trendo kryptis - AUKŠTYN (žalias), ŽEMYN (raudonas) arba DIAPAZONAS (pilkas). Reversal prieš šią kryptį yra prieš trendą.
+- "CVD divergencija": BULL DIV (žalias) arba BEAR DIV (raudonas), kai per paskutinius kelis barus (numatyta 5) buvo užfiksuota CVD divergencija; kitaip "-".
+- "RVOL (x vidurkis)": dabartinės žvakės apimtis padalinta iš apimties vidurkio; žalias nuo 1.5x (stipri apimtis), pilkas žemiau 1.0x (plona). Veikia visose rinkose geriau nei absoliutus HIGH VOL slenkstis.
 
 13. CANDLE VOLUME DASHBOARD APAČIOJE DEŠINĖJE
 - BUY (V) / SELL (V): įvertintas pirkimo ir pardavimo volume pagal žvakės užsidarymo vietą range viduje; tai nėra biržos bid/ask duomenys.
 - TOTAL: bendra žvakės apimtis.
 - DELTA: BUY ir SELL įvertintos apimties skirtumas procentais.
 - CMF: Chaikin Money Flow reikšmė.
-- SIGNAL / BIAS: aktyvus sweep, target, CHoCH, Whale, Order Block test, institutional volume arba trend bias pranešimas.
+- SIGNAL / BIAS: aktyvus sweep, target, CHoCH, Whale, Order Block test, institutional volume, CVD divergencija (BULL DIV / BEAR DIV) arba trend bias pranešimas.
+
+14. MAŽI TRIKAMPIAI - CVD DIVERGENCIJA
+- Žalias trikampis (▲) po žvake ties pivot low: bullish CVD divergencija - kaina padarė žemesnį low, o CVD (kaupiamoji Delta) padarė aukštesnį low. Pardavėjai silpsta.
+- Raudonas trikampis (▼) virš žvakės ties pivot high: bearish CVD divergencija - kaina padarė aukštesnį high, o CVD padarė žemesnį high. Pirkėjai silpsta.
+- Divergencija prideda papildomą svorį apsisukimo tikimybei ir yra pažymima SIGNAL stulpelyje kaip "| BULL DIV" arba "| BEAR DIV".
+- Divergenciją valdo "Detect CVD divergence at pivots" ir "CVD divergence active window (bars)" nustatymai.
 
 TRUMPAS SPALVŲ ŽEMĖLAPIS
 - Mint / turkis: BSL, bullish kontekstas, teigiamas Delta.
@@ -98,3 +107,4 @@ TRUMPAS SPALVŲ ŽEMĖLAPIS
 - Pilka brūkšninė: istorinis, jau paliestas arba pasiektas lygis.
 - Žalia dėžė: Bullish Order Block palaikymo zona.
 - Violetinė dėžė: Bearish Order Block pasipriešinimo zona.
+- Žalias trikampis po žvake: bullish CVD divergencija. Raudonas trikampis virš žvakės: bearish CVD divergencija.
