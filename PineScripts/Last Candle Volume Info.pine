@@ -178,8 +178,8 @@ compactUsdt(float value) =>
     float absoluteValue = math.abs(value)
     absoluteValue >= 1000000000 ? str.tostring(value / 1000000000, "#.##") + "B" : absoluteValue >= 1000000 ? str.tostring(value / 1000000, "#.##") + "M" : absoluteValue >= 1000 ? str.tostring(value / 1000, "#.##") + "K" : str.tostring(value, "#")
 
-structureLabelText(string signalName, float signalVolumeUsdt, float signalDeltaPercent) =>
-    signalName + "\nVol: $" + compactUsdt(signalVolumeUsdt) + "\nDelta: " + str.tostring(signalDeltaPercent, "#.#") + "%"
+structureLabelText(string signalName, float signalBuyVolumeUsdt, float signalSellVolumeUsdt) =>
+    signalName + "\nBuy: $" + compactUsdt(signalBuyVolumeUsdt) + "\nSell: $" + compactUsdt(signalSellVolumeUsdt)
 
 obMergeDistance(float referencePrice) =>
     float percentDistance = referencePrice * obMergePercent / 100.0
@@ -214,17 +214,12 @@ addBullishOrderBlock(float obTop, float obBottom, float obPower, float obBuyVolu
                 block.bottom := math.min(block.bottom, obBottom)
                 box.set_top(block.boxRef, block.top)
                 box.set_bottom(block.boxRef, block.bottom)
-                float blockDeltaPercent = block.totalVolume > 0 ? block.deltaVolume / block.totalVolume * 100.0 : 0.0
-                label.set_text(block.labelRef, "Bull OB: " + str.tostring(block.buyVolume, format.volume) + " [+" + str.tostring(blockDeltaPercent, "#") + "%]")
-                label.set_y(block.labelRef, block.bottom)
                 array.set(bullishObStack, blockIndex, block)
                 matched := true
                 break
     if not matched
-        float blockDeltaPercent = obTotalVolume > 0 ? obDeltaVolume / obTotalVolume * 100.0 : 0.0
         box newBox = box.new(bar_index - rightBars, obTop, bar_index, obBottom, xloc=xloc.bar_index, border_color=color.new(bslColor, 25), bgcolor=color.new(bslColor, 85))
-        label newLabel = label.new(bar_index + 10, obBottom, "Bull OB: " + str.tostring(obBuyVolume, format.volume) + " [+" + str.tostring(blockDeltaPercent, "#") + "%]", xloc=xloc.bar_index, style=label.style_label_left, color=#0b3d2e, textcolor=color.white, size=size.tiny)
-        array.push(bullishObStack, BullishOrderBlock.new(obTop, obBottom, obPower, obBuyVolume, obTotalVolume, obDeltaVolume, 1, true, false, newBox, newLabel))
+        array.push(bullishObStack, BullishOrderBlock.new(obTop, obBottom, obPower, obBuyVolume, obTotalVolume, obDeltaVolume, 1, true, false, newBox, na))
     if array.size(bullishObStack) > 20
         BullishOrderBlock oldestBlock = array.shift(bullishObStack)
         box.delete(oldestBlock.boxRef)
@@ -669,9 +664,6 @@ if bullishBlockCount > 0
             else if block.reversalLabelPrinted
                 block.reversalLabelPrinted := false
                 array.set(bullishObStack, blockIndex, block)
-            if block.active
-                label.set_x(block.labelRef, bar_index + 10)
-                label.set_y(block.labelRef, block.bottom)
 bool bearObInvalidatedThisBar = false
 bool insideBearishOb = false
 bool bearishObAbove = false
@@ -852,6 +844,10 @@ plotshape(isAbsorption, title="VOL CLIMAX ABS", style=shape.circle, location=loc
 plotshape(isExhaustionReversal, title="Exhaustion reversal", style=shape.triangledown, location=location.abovebar, color=color.orange, size=size.small, text="EXH", textcolor=color.white)
 plotshape(showCvdDivergence and bullishCvdDivergence, "Bullish CVD divergence", shape.triangleup, location.belowbar, color=color.new(bslColor, 0), size=size.tiny, offset=-rightBars)
 plotshape(showCvdDivergence and bearishCvdDivergence, "Bearish CVD divergence", shape.triangledown, location.abovebar, color=color.new(sslColor, 0), size=size.tiny, offset=-rightBars)
+if showCvdDivergence and bullishCvdDivergence
+    label.new(bar_index - rightBars, low[rightBars] - labelCollisionOffset, "Buy: $" + compactUsdt(buyVolumeUsdt[rightBars]), xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_up, color=#0b3d2e, textcolor=color.white, size=size.tiny)
+if showCvdDivergence and bearishCvdDivergence
+    label.new(bar_index - rightBars, high[rightBars] + labelCollisionOffset, "Sell: $" + compactUsdt(sellVolumeUsdt[rightBars]), xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_down, color=#5a1420, textcolor=color.white, size=size.tiny)
 plotshape(institutionalAccumulation, title="Institutional Accumulation", style=shape.diamond, location=location.belowbar, color=color.aqua, size=size.small)
 plotshape(aggressiveShortSqueeze, title="Aggressive Short Squeeze", style=shape.triangleup, location=location.belowbar, color=color.fuchsia, size=size.small, text="SQ", textcolor=color.white)
 plotshape(aggressiveLongSqueeze, title="Aggressive Long Squeeze", style=shape.triangledown, location=location.abovebar, color=color.orange, size=size.small, text="LQ", textcolor=color.white)
@@ -1048,7 +1044,7 @@ if bearishContinuation
                 labelPrice := lastStructureLabelPrice + labelOffset
             string structureSignalName = bearishBos ? "Bear BOS" : "Bear CHoCH"
             structureSignalName := internalBearishChoch ? structureSignalName + " + LTF Bear CHoCH" : structureSignalName
-            label.new(bar_index, labelPrice, structureLabelText(structureSignalName, barVolumeUsdt, deltaPercent), style=label.style_label_down, color=sslColor, textcolor=color.white, size=size.tiny)
+            label.new(bar_index, labelPrice, structureLabelText(structureSignalName, buyVolumeUsdt, sellVolumeUsdt), style=label.style_label_down, color=sslColor, textcolor=color.white, size=size.tiny)
             lastStructureLabelPrice := labelPrice
             lastStructureLabelBar := bar_index
             bearishStructureLabelDrawn := true
@@ -1058,9 +1054,9 @@ if internalBullishChoch
 if internalBearishChoch
     barSignal := barSignal == "" ? "LTF BEAR CHoCH -> EARLY ENTRY" : barSignal + " | LTF BEAR CHoCH"
 if showChochLabels and internalBullishChoch
-    label.new(bar_index, low, structureLabelText("LTF Bull CHoCH", barVolumeUsdt, deltaPercent), yloc=yloc.belowbar, style=label.style_label_up, color=bslColor, textcolor=color.white, size=size.tiny)
+    label.new(bar_index, low, structureLabelText("LTF Bull CHoCH", buyVolumeUsdt, sellVolumeUsdt), yloc=yloc.belowbar, style=label.style_label_up, color=bslColor, textcolor=color.white, size=size.tiny)
 if showChochLabels and internalBearishChoch and not bearishStructureLabelDrawn and not drawBearishProbabilityLabel
-    label.new(bar_index, high, structureLabelText("LTF Bear CHoCH", barVolumeUsdt, deltaPercent), yloc=yloc.abovebar, style=label.style_label_down, color=sslColor, textcolor=color.white, size=size.tiny)
+    label.new(bar_index, high, structureLabelText("LTF Bear CHoCH", buyVolumeUsdt, sellVolumeUsdt), yloc=yloc.abovebar, style=label.style_label_down, color=sslColor, textcolor=color.white, size=size.tiny)
 
 var table infoPanel = table.new(position.bottom_right, 8, 11, frame_color=color.new(chart.fg_color, 60), frame_width=1, border_color=color.new(chart.fg_color, 80), border_width=1)
 var table h4StatsPanel = table.new(position.top_right, 2, 5, frame_color=color.new(chart.fg_color, 60), frame_width=1, border_color=color.new(chart.fg_color, 80), border_width=1)

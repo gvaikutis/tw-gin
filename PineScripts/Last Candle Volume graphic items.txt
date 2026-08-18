@@ -1,0 +1,175 @@
+# Last Candle Volume Info - Graphic Items Reference
+
+Source: PineScripts/Last Candle Volume Info.pine
+
+Buy and sell values throughout this indicator are estimates. TradingView supplies total bar volume, so the script allocates it from the candle close's position within its high-low range. They are not exchange bid/ask figures.
+
+## 1. Liquidity levels
+
+### Local BSL and SSL lines
+- A confirmed pivot high creates a BSL (buy-side liquidity) horizontal line in mint green.
+- A confirmed pivot low creates an SSL (sell-side liquidity) horizontal line in crimson/red.
+- Lines begin on the confirmed pivot bar and extend right while active.
+- Normal levels are thin and dotted. High-volume levels are thicker and more visible. Equal highs/equal lows are solid, widest, and highest priority.
+- A level is mitigated by either a wick sweep or close breach, according to the Mitigation input.
+- Mitigated levels become gray dashed historical lines when "Keep mitigated levels" is enabled. Otherwise, they are deleted.
+- The indicator stores up to the selected Maximum stored zones; the oldest level is removed first.
+
+### H4 locked levels and statistical corridors
+- `Locked H4 High`: mint-green, two-pixel stepline at the last confirmed higher-timeframe pivot high.
+- `Locked H4 Low`: crimson/red, two-pixel stepline at the last confirmed higher-timeframe pivot low.
+- `H4 High Statistical Corridor`: orange two-pixel stepline above the locked high.
+- `H4 Low Statistical Corridor`: orange two-pixel stepline below the locked low.
+- Each orange corridor is filled back to its associated locked H4 level with a very transparent orange area.
+- On a chart below the selected H4 liquidity-source timeframe, optional dashed projections extend right:
+  - H4 high projection: transparent mint-green dashed line.
+  - H4 low projection: transparent crimson/red dashed line.
+
+## 2. Order-block rectangles and their labels
+
+### Bullish order blocks
+- A confirmed pivot low creates a green bullish order-block rectangle from that pivot candle's high to low.
+- The green rectangle starts at the pivot bar and expands right while active.
+- Bullish order-block rectangles do not display a Buy-volume label.
+- Several active bullish blocks may be present. An invalidated block stops extending and turns gray.
+
+### Bearish order blocks
+- A confirmed pivot high creates a purple/violet bearish order-block rectangle from that pivot candle's high to low.
+- The rectangle starts at the pivot bar and expands right while active.
+- A small dark-red `Bear OB` label is anchored at the rectangle's upper edge and follows its right side.
+- Its text shows the accumulated estimated sell volume and delta percentage for merged nearby blocks.
+- Several active bearish blocks may be present. An invalidated block stops extending, turns gray, and its label is removed.
+
+### Orange exhaustion supply zone
+- An orange, very transparent rectangle can appear after an exhaustion-reversal condition.
+- It spans the exhaustion candle high to low and extends right.
+- It stops extending when invalidated or when its short tracking window finishes.
+- The dashboard reports the associated state, such as `AWAITING MOMENTUM`, `EXH CONFIRMED`, `DISTRIB. ZONE`, or `EXH INVALIDATED`.
+
+## 3. Targets and structural labels
+
+### Forecast target line and target tag
+- Only one active target is shown at a time.
+- A bullish target is a yellow horizontal line above price with a yellow `BULL TARGET` tag.
+- A bearish target is a yellow horizontal line below price with a yellow `BEAR TARGET` tag.
+- A bearish structure-continuation target that points to a bullish order block is labeled `BEAR TARGET: OB`.
+- Target lines extend right. Reached targets become gray dashed historical lines; cancelled, superseded, distant, or expired targets are removed.
+- The dashboard Signal / Bias cell records target outcomes such as target hit, cancellation, reversal, or distance filtering.
+
+### Bearish BOS / CHoCH event box
+- A small crimson/red label is placed above the relevant candle for a bearish BOS or CHoCH continuation event.
+- Its title is `Bear BOS`, `Bear CHoCH`, or the same title with `+ LTF Bear CHoCH`.
+- It now shows two volume lines: estimated `Buy: $...` and `Sell: $...`.
+- The label is offset upward when needed to reduce collisions with reversal labels.
+
+### LTF CHoCH event boxes
+- A mint-green `LTF Bull CHoCH` label is placed below a bullish internal change-of-character candle.
+- A crimson/red `LTF Bear CHoCH` label is placed above a bearish internal change-of-character candle.
+- Both labels show estimated `Buy: $...` and `Sell: $...`.
+- They are controlled by the `Show CHoCH labels` input.
+
+## 4. Reversal-probability labels
+
+### Bullish reversal label
+- A label appears below price when a new bullish reversal setup is confirmed.
+- It contains probability, classification, and directional volume; for example:
+  `55% STRONG`
+  `Buy: $140.76M`
+- Colors:
+  - Orange: weak reversal.
+  - Blue: low-probability but high-volume reversal.
+  - Teal: strong reversal.
+- Only the latest bullish label is retained; a new bullish label replaces the previous one.
+
+### Bearish reversal label
+- A label appears above price when a new bearish reversal setup is confirmed.
+- It contains probability, classification, and directional volume; for example:
+  `43% HIGH VOL`
+  `Sell: $229.53M`
+- Colors:
+  - Gray: weak reversal.
+  - Purple: low-probability but high-volume reversal.
+  - Orange: strong reversal.
+- Only the latest bearish label is retained; a new bearish label replaces the previous one.
+
+The probability combines the script's observed sweep-reversal rate with volume, delta, H4 corridor confluence, and agreeing CVD divergence.
+
+## 5. Candle markers, OI annotations, and absorption levels
+
+### Volume and reversal markers
+- Yellow circle above candle: `VOL CLIMAX ABS`, showing volume climax/absorption at the H4 high context.
+- Orange downward triangle above candle with `EXH`: an exhaustion-reversal event.
+- Mint-green tiny upward triangle below the pivot bar: bullish CVD divergence. A dark-green `Buy: $...` label directly below it shows that pivot candle's estimated buy value.
+- Crimson/red tiny downward triangle above the pivot bar: bearish CVD divergence. A dark-red `Sell: $...` label directly above it shows that pivot candle's estimated sell value.
+- Aqua diamond below candle: institutional accumulation, requiring significant positive open-interest change with neutral delta.
+- Fuchsia upward triangle below candle with `SQ`: aggressive short squeeze, requiring significant negative OI change with strongly positive delta.
+- Orange downward triangle above candle with `LQ`: aggressive long squeeze, requiring significant negative OI change with strongly negative delta.
+
+### Open-interest value annotations
+- Aqua plain text below an institutional-accumulation candle: positive OI change in USDT, such as `+$1.25M`.
+- Fuchsia plain text below a short-squeeze candle: negative OI change in USDT.
+- Orange plain text above a long-squeeze candle: negative OI change in USDT.
+
+### Absorption ceiling
+- An absorption event creates a solid orange horizontal resistance line at that candle's high.
+- It extends right while active.
+- When price closes above it, it stops extending and becomes thin gray dashed history.
+
+### Invalidated order-block diagnostics
+- Gray X below a candle: a bullish order block was invalidated.
+- Gray X above a candle: a bearish order block was invalidated.
+- When `Log invalidated Order Blocks` is enabled, the same invalidation prints a blue diagnostic label:
+  - Below price for a bullish-block failure.
+  - Above price for a bearish-block failure.
+  - The label lists estimated buy/sell volume, Delta, CVD, and RVOL.
+
+## 6. Tables
+
+### Top-right H4 analysis panel
+- A two-column, five-row panel headed `H4 Lygių Analizė` and `Live`.
+- Rows:
+  1. `Atstumas nuo H4 High / Low`: percentage distance from both locked H4 levels.
+  2. `Apsisukimo tikimybė:`: current or latest reversal probability and direction.
+  3. `Trendas (HTF)`: higher-timeframe EMA context: `AUKŠTYN` (up), `ŽEMYN` (down), or `DIAPAZONAS` (range).
+  4. `CVD / RVOL (x vidurkis)`: most recent CVD divergence state and relative volume multiple.
+- The reversal-probability cell changes background by confidence; the trend and divergence text use their directional colors.
+
+### Bottom-right 10-candle dashboard
+- An eight-column table covering the current candle (`C1`) and nine prior candles (`C2` through `C10`).
+- Columns:
+  1. `Bar`
+  2. `BUY (USDT)` - estimated buy volume
+  3. `SELL (USDT)` - estimated sell volume
+  4. `TOTAL (USDT)` - total traded value
+  5. `DELTA` - estimated buy/sell imbalance percentage
+  6. `CMF` - Chaikin Money Flow
+  7. `OI DELTA` - OI change and total OI in USDT
+  8. `SIGNAL / BIAS` - liquidity, target, order-block, whale, divergence, and reversal state
+- Buy figures use mint-green text; sell figures use crimson/red text. Positive/negative Delta and CMF use the same directional colors.
+- Signal backgrounds provide visual status:
+  - Teal/orange for active reversal and order-block testing context.
+  - Blue for reached targets.
+  - Orange for cancelled targets.
+  - Dark charcoal for superseded targets.
+  - Green/red tints for bullish/bearish signals.
+- The bearish order-block cap can lock only live C1 to `SELL-SIDE BIAS / BEAR OB CAP`; historical C2-C10 rows are not overwritten.
+
+### Bottom-left optional failure table
+- Appears only when `Show invalidated Order Block failure table` is enabled.
+- Shows the five most recent failures with four columns: `Time`, `Type`, `Close Price`, and `Volume`.
+- A row type is `Bull OB Fail` or `Bear OB Fail`.
+
+## 7. Data Window only - not chart graphics
+
+When `Expose per-candle metrics in Data Window (CSV export)` is enabled, the following hidden plots are available for Data Window inspection or CSV export but are not drawn on the chart:
+- Reversal Probability %
+- Delta %
+- CMF
+- CVD
+- RVOL
+- Buy Volume (USDT)
+- Sell Volume (USDT)
+- Sweep Penetration %
+- Reversal Flag (1 bullish / -1 bearish)
+- CVD Divergence Flag
+- HTF Trend (1 up / -1 down)

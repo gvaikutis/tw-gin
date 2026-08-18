@@ -73,6 +73,17 @@ Use this skill for changes to `PineScripts/Last Candle Volume Info.pine`.
 - Compute RVOL as current volume divided by the `whaleLength` volume average; green at or above 1.5x, gray below 1.0x.
 - Show the HTF trend bias, CVD divergence state (`BULL DIV` / `BEAR DIV` / `-`), and RVOL as extra rows in the top-right H4 panel; never add them as columns to the bottom-right seven-column dashboard.
 
+## Graphic Elements Contract
+
+- Preserve the complete chart rendering contract documented in [Last Candle Volume graphic items.txt](../../../PineScripts/Last%20Candle%20Volume%20graphic%20items.txt).
+- Active BSL/SSL levels extend right in mint/crimson; mitigated levels are gray dashed history or are deleted according to `keepMitigated`.
+- Active bullish order-block boxes are green, active bearish order-block boxes are violet, and invalidated blocks are gray and stop extending. Bullish order-block boxes have no Buy label; bearish labels remain at the bearish block top.
+- Each bullish CVD-divergence triangle has a `Buy: $...` label directly below its pivot candle, using that candle's estimated buy value.
+- Each bearish CVD-divergence triangle has a `Sell: $...` label directly above its pivot candle, using that candle's estimated sell value.
+- Keep the locked H4 levels, orange statistical corridors/fills, optional lower-timeframe H4 projections, yellow active target line/tag, reversal labels, CVD/OI markers, and absorption ceilings visually distinct as documented.
+- Keep the top-right H4 panel, bottom-right 10-candle dashboard, and optional bottom-left failure table in their established positions. Do not turn Data Window export plots into chart plots.
+- Estimated Buy/Sell figures derive from candle close location in the high-low range. Never present them as exchange bid/ask data.
+
 ## Change Checklist
 
 1. Keep zone, target, and table state aligned through the same series events.
