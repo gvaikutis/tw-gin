@@ -55,17 +55,30 @@ Spalva nurodo lygio tipą ir krypties kontekstą. Linijos stilius nurodo būsen�
 - Bear BOS: kaina pramušė ankstesnį struktūrinį low - bearish struktūros tęsimas.
 - Bear CHoCH: kaina pramušė minor low - ankstyvas lokalaus charakterio pasikeitimas į bearish pusę.
 - Šie signalai gali sukurti "BEAR TARGET: OB" į žemiau esantį Bullish OB.
+- Jei Bear BOS / Bear CHoCH žvakėje estimated Buy volume yra daugiau nei 1.5 karto didesnis už estimated Sell volume, etiketės pradžioje rodoma "⚠️". Tai Bull Absorption Anomaly - galimas institucinės paklausos / bearish fakeout perspėjimas.
+- Tuo pačiu metu po tikslia Bear BOS / Bear CHoCH etiketės žvake rodomas mažas ryškiai žalias kvadratas "Bear Break Trap (Bull Abs)".
 
 9. "LTF BULL CHoCH" IR "LTF BEAR CHoCH"
 - LTF BULL CHoCH: po SSL sweep aktyvaus grafiko laiko intervale kaina pramušė minor high. Tai ankstyvas bullish entry kontekstas prieš galimą didesnio TF reversal.
 - LTF BEAR CHoCH: po BSL sweep aktyvaus grafiko laiko intervale kaina pramušė minor low. Tai ankstyvas bearish entry kontekstas.
 - Patvirtinimo langą valdo "Internal CHoCH confirmation window (bars)" nustatymas.
+- Jei bullish break žvakėje estimated Sell volume yra daugiau nei 1.5 karto didesnis už estimated Buy volume, etiketės pradžioje rodoma "⚡" (Bear Absorption Anomaly). Jei bearish break žvakėje Buy volume daugiau nei 1.5 karto didesnis už Sell volume, rodoma "⚠️" (Bull Absorption Anomaly).
+- Bullish break Bear Absorption Anomaly taip pat pažymima mažu ryškiai raudonu kvadratu virš tikslios bullish CHoCH etiketės žvakės.
 
 10. GELTONAS APSKRITIMAS VIRŠ ŽVAKĖS - "VOL CLIMAX ABS"
 - Geltonas apskritimas rodo galimą bullish volume absorption / exhaustion ties H4 viršutiniu koridoriumi.
 - Jis rodomas, kai kaina pasiekia H4 High / upper corridor, yra institutional volume spike, Delta teigiamas, bet mažesnis nei ankstesnės žvakės Delta.
 - Institutional volume spike skaičiuojamas USDT volume verte: baro volume × close, palyginta su USDT Volume SMA × "Institutional volume spike multiplier".
 - Tai perspėjimas apie silpnėjantį pirkimo spaudimą ties pasipriešinimu, ne savarankiškas sell signalas.
+
+10A. MID-RANGE CONTEXT - SIGNAL / BIAS STULPELYJE IR ŽYMENYS ANT ŽVAKIŲ
+- Modulis prideda kontekstą prie esamo SIGNAL / BIAS teksto ir braižo mažus pusiau skaidrius žymenis ant žvakių.
+- Modulis valdomas nustatymu "Show mid-range volume and CVD context".
+- Jis suveikia tik kai USDT apimtis viršija 1.25x USDT Volume SMA, o visa žvakė yra griežtai tarp H4 High / Low ir jų statistinių koridorių ribų.
+- Teigiama Delta virš +20% rodo "MID BULL (+...%)", neigiama Delta žemiau -20% rodo "MID BEAR (-...%)".
+- Jei dabartinis high žemesnis nei prieš 3 žvakes, bet CVD aukštesnis, rodomas bearish CVD absorption; jei dabartinis low aukštesnis nei prieš 3 žvakes, bet CVD žemesnis, rodomas bullish CVD absorption. SIGNAL / BIAS tekstui pridedama "| CVD ABSORP".
+- Esami sweep, Whale, Order Block ir H4 signalai neperrašomi: mid-range kontekstas prie jų tik prijungiamas.
+- MID BULL žymimas mažu žaliu apskritimu po žvake, MID BEAR - mažu raudonu apskritimu virš žvakės. CVD ABSORP žymimas mažu oranžiniu trikampiu: bullish po žvake, bearish virš žvakės.
 
 11. PROCENTŲ ETIKETĖS ANT GRAFIKO
 - Turkio procentas po kaina: bullish reversal tikimybė po SSL sweep, kai apimtis ir Delta palaiko kilimą.
@@ -91,7 +104,8 @@ Spalva nurodo lygio tipą ir krypties kontekstą. Linijos stilius nurodo būsen�
 - DELTA: BUY ir SELL įvertintos apimties skirtumas procentais.
 - CMF: Chaikin Money Flow reikšmė.
 - OI DELTA: konkrečios žvakės Open Interest pokytis USDT verte ir visas OI skliausteliuose, pvz. "+147.43K ($2.45B)".
-- SIGNAL / BIAS: aktyvus sweep, target, CHoCH, Whale, Order Block test, institutional volume, CVD divergencija (BULL DIV / BEAR DIV) arba trend bias pranešimas.
+- SIGNAL / BIAS: aktyvus sweep, target, CHoCH, Whale, Order Block test, institutional volume, CVD divergencija (BULL DIV / BEAR DIV), Mid-Range Context arba trend bias pranešimas.
+- Mid-Range Context neperrašo pirminio pranešimo. Kai jis sutampa su esamu signalu, tekstas prijungiamas su `|`, pavyzdžiui: `WHALE SELL | MID BEAR (-34.00%) | CVD ABSORP`. Jei pirminio pranešimo nėra, rodomas vien `MID BULL (+25.00%)`, `MID BEAR (-25.00%)` arba `CVD ABSORP`.
 
 14. MAŽI TRIKAMPIAI - CVD DIVERGENCIJA
 - Žalias trikampis (▲) po žvake ties pivot low: bullish CVD divergencija - kaina padarė žemesnį low, o CVD (kaupiamoji Delta) padarė aukštesnį low. Pardavėjai silpsta.
@@ -109,6 +123,7 @@ TRUMPAS SPALVŲ ŽEMĖLAPIS
 - Žalia dėžė: Bullish Order Block palaikymo zona.
 - Violetinė dėžė: Bearish Order Block pasipriešinimo zona.
 - Žalias trikampis po žvake: bullish CVD divergencija. Raudonas trikampis virš žvakės: bearish CVD divergencija.
+- Pusiau skaidrus žalias / raudonas apskritimas: atitinkamai MID BULL / MID BEAR in-range kontekstas. Pusiau skaidrus oranžinis trikampis: 3 žvakių CVD absorption kontekstas.
 
 15. OI ŽYMENYS ANT ŽVAKIŲ
 - Žydras rombas po žvake: Institutional Accumulation. OI didėja, Delta yra neutralus, o OI pokytis viršija reikšmingo OI dydį.

@@ -49,11 +49,17 @@ sslColor = input.color(#dd326b, "SSL color", group="Liquidity Map", inline="colo
 lineTouchTolerancePercent = input.float(0.02, "Line Touch Tolerance %", minval=0.001, step=0.001, group="Institutional Alerts")
 absorptionSmaLength = input.int(10, "Absorption volume/body SMA length", minval=1, group="Institutional Alerts")
 absorptionVolumeMultiplier = input.float(1.5, "Absorption volume spike multiplier", minval=1.0, step=0.1, group="Institutional Alerts")
+useMidRangeContext = input.bool(true, "Show mid-range volume and CVD context", group="Institutional Alerts")
 string flowTrendGroup = "Flow & Trend Confirmation"
 showCvdDivergence = input.bool(true, "Detect CVD divergence at pivots", group=flowTrendGroup)
 cvdDivergenceWindow = input.int(5, "CVD divergence active window (bars)", minval=1, group=flowTrendGroup)
 trendBiasTimeframe = input.timeframe("240", "Trend bias timeframe", group=flowTrendGroup)
 trendBiasEmaLength = input.int(50, "Trend bias EMA length", minval=1, group=flowTrendGroup)
+string sessionBiasGroup = "Session Bias Settings"
+string asiaSession = input.string("0000-0800", "Asia session", group=sessionBiasGroup)
+string londonSession = input.string("0800-1600", "London session", group=sessionBiasGroup)
+string newYorkSession = input.string("1300-2100", "New York session", group=sessionBiasGroup)
+string sessionTimezone = input.string("Etc/UTC", "Session timezone", group=sessionBiasGroup)
 string oiAnomalyGroup = "OI Anomaly Alerts"
 oiSignificancePercent = input.float(15.0, "Significant OI (% of traded USDT volume)", minval=0.1, maxval=100.0, step=0.1, group=oiAnomalyGroup)
 neutralDeltaBound = input.float(15.0, "Neutral volume delta bound (%)", minval=0.0, maxval=100.0, step=1.0, group=oiAnomalyGroup)
@@ -163,7 +169,12 @@ var int bars_since_exh = 0
 var float exh_high = na
 var float exh_low = na
 var box exhaustionSupplyBox = na
+var bool plotBearTrapSquare = false
+var bool plotBullTrapSquare = false
 color statCorridorColor = #ff9800
+
+plotBearTrapSquare := false
+plotBullTrapSquare := false
 
 float atrValue = ta.atr(atrLength)
 float labelCollisionOffset = math.max(syminfo.mintick * 10.0, atrValue * 0.75)
@@ -178,8 +189,10 @@ compactUsdt(float value) =>
     float absoluteValue = math.abs(value)
     absoluteValue >= 1000000000 ? str.tostring(value / 1000000000, "#.##") + "B" : absoluteValue >= 1000000 ? str.tostring(value / 1000000, "#.##") + "M" : absoluteValue >= 1000 ? str.tostring(value / 1000, "#.##") + "K" : str.tostring(value, "#")
 
-structureLabelText(string signalName, float signalBuyVolumeUsdt, float signalSellVolumeUsdt) =>
-    signalName + "\nBuy: $" + compactUsdt(signalBuyVolumeUsdt) + "\nSell: $" + compactUsdt(signalSellVolumeUsdt)
+structureLabelText(string signalName, float signalBuyVolumeUsdt, float signalSellVolumeUsdt, bool isBullishBreak) =>
+    bool absorptionAnomaly = isBullishBreak ? signalSellVolumeUsdt > signalBuyVolumeUsdt * 1.5 : signalBuyVolumeUsdt > signalSellVolumeUsdt * 1.5
+    string anomalyPrefix = absorptionAnomaly ? (isBullishBreak ? "⚡ " : "⚠️ ") : ""
+    anomalyPrefix + signalName + "\nBuy: $" + compactUsdt(signalBuyVolumeUsdt) + "\nSell: $" + compactUsdt(signalSellVolumeUsdt)
 
 obMergeDistance(float referencePrice) =>
     float percentDistance = referencePrice * obMergePercent / 100.0
@@ -435,6 +448,74 @@ float deltaVol = buyVolume - sellVolume
 float deltaVolUsdt = buyVolumeUsdt - sellVolumeUsdt
 cvd := cvd + nz(deltaVol)
 float deltaPercent = totalVolume > 0 ? (buyVolume - sellVolume) / totalVolume * 100 : 0.0
+
+bool inAsiaSession = not na(time(timeframe.period, asiaSession, sessionTimezone))
+bool inLondonSession = not na(time(timeframe.period, londonSession, sessionTimezone))
+bool inNewYorkSession = not na(time(timeframe.period, newYorkSession, sessionTimezone))
+bool asiaSessionStarted = inAsiaSession and not inAsiaSession[1]
+bool londonSessionStarted = inLondonSession and not inLondonSession[1]
+bool newYorkSessionStarted = inNewYorkSession and not inNewYorkSession[1]
+bool asiaSessionEnded = inAsiaSession[1] and not inAsiaSession
+
+var float sessionOpenPrice = na
+var string activeSessionLabel = "NONE"
+var float asiaHigh = na
+var float asiaLow = na
+var float lockedAsiaHigh = na
+var float lockedAsiaLow = na
+var bool londonSweptAsiaHigh = false
+var bool londonSweptAsiaLow = false
+var string londonManipulationState = ""
+
+if asiaSessionStarted
+    sessionOpenPrice := open
+    activeSessionLabel := "ASIA"
+if londonSessionStarted
+    sessionOpenPrice := open
+    activeSessionLabel := "LDN"
+if newYorkSessionStarted
+    sessionOpenPrice := open
+    activeSessionLabel := "NY"
+
+if asiaSessionStarted
+    asiaHigh := high
+    asiaLow := low
+else if inAsiaSession
+    asiaHigh := na(asiaHigh) ? high : math.max(asiaHigh, high)
+    asiaLow := na(asiaLow) ? low : math.min(asiaLow, low)
+
+if asiaSessionEnded
+    lockedAsiaHigh := asiaHigh
+    lockedAsiaLow := asiaLow
+
+if londonSessionStarted
+    londonSweptAsiaHigh := false
+    londonSweptAsiaLow := false
+    londonManipulationState := ""
+
+if inLondonSession and not na(lockedAsiaHigh) and not na(lockedAsiaLow)
+    londonSweptAsiaHigh := londonSweptAsiaHigh or high > lockedAsiaHigh
+    londonSweptAsiaLow := londonSweptAsiaLow or low < lockedAsiaLow
+    if londonManipulationState == ""
+        if londonSweptAsiaHigh and (close < open or deltaPercent < -20.0)
+            londonManipulationState := "LM: BEAR FAKEOUT"
+        else if londonSweptAsiaLow and (close > open or deltaPercent > 20.0)
+            londonManipulationState := "LM: BULL FAKEOUT"
+
+if not inLondonSession and inLondonSession[1]
+    londonManipulationState := ""
+    londonSweptAsiaHigh := false
+    londonSweptAsiaLow := false
+
+string sessionBiasText = na(sessionOpenPrice) ? "-" : activeSessionLabel + ": " + (close >= sessionOpenPrice ? "BULL" : "BEAR")
+string londonManipulationText = ""
+if inLondonSession
+    if londonManipulationState != ""
+        londonManipulationText := londonManipulationState
+    else if londonSweptAsiaHigh or londonSweptAsiaLow
+        londonManipulationText := "LM: SWEEP IN PROGRESS"
+    else
+        londonManipulationText := "LM: NO SWEEP"
 bool institutionalAccumulation = isOiSignificant and oiDeltaUsdt > 0 and math.abs(deltaPercent) <= neutralDeltaBound
 bool aggressiveShortSqueeze = isOiSignificant and oiDeltaUsdt < 0 and deltaPercent > bullishDeltaThreshold
 bool aggressiveLongSqueeze = isOiSignificant and oiDeltaUsdt < 0 and deltaPercent < bearishDeltaThreshold
@@ -816,6 +897,31 @@ bool deltaExhaustion = bullishInstitutionalSweep and close[1] > open[1] and delt
 bool isAbsorption = h4UpperCorridorConfluence and deltaExhaustion
 bool absorptionAlert = barstate.isconfirmed and isAbsorption
 
+// Mid-range context uses the established volume, delta, CVD, and locked H4 series.
+float candleVolumeUSDT = barVolumeUsdt
+float volumeSmaUSDT = volumeSma20
+float deltaPct = deltaPercent
+float h4High = htfHigh
+float h4Low = htfLow
+float h4UpperCorridor = upper_corridor
+float h4LowerCorridor = lower_corridor
+bool isMidRangeVolume = not na(volumeSmaUSDT) and candleVolumeUSDT > volumeSmaUSDT * 1.25
+bool isInsideH4Range = not na(h4High) and not na(h4Low) and not na(h4UpperCorridor) and not na(h4LowerCorridor) and high < h4High and high < h4UpperCorridor and low > h4Low and low > h4LowerCorridor
+bool hasMidRangeContext = useMidRangeContext and isMidRangeVolume and isInsideH4Range
+bool isMidRangeAbsBull = hasMidRangeContext and deltaPct > 20
+bool isMidRangeAbsBear = hasMidRangeContext and deltaPct < -20
+bool hiddenBearDiv = hasMidRangeContext and not na(cvd[3]) and high < high[3] and cvd > cvd[3]
+bool hiddenBullDiv = hasMidRangeContext and not na(cvd[3]) and low > low[3] and cvd < cvd[3]
+bool hasCvdAbsorption = hiddenBearDiv or hiddenBullDiv
+string midRangeContextText = ""
+if hasMidRangeContext
+    if deltaPct > 20
+        midRangeContextText := "MID BULL (+" + str.tostring(deltaPct, "#.##") + "%)"
+    else if deltaPct < -20
+        midRangeContextText := "MID BEAR (" + str.tostring(deltaPct, "#.##") + "%)"
+    if hasCvdAbsorption
+        midRangeContextText := midRangeContextText == "" ? "CVD ABSORP" : midRangeContextText + " | CVD ABSORP"
+
 int absorptionCeilingCount = array.size(absorptionCeilingLines)
 if absorptionCeilingCount > 0
     for ceilingIndex = 0 to absorptionCeilingCount - 1
@@ -1044,7 +1150,9 @@ if bearishContinuation
                 labelPrice := lastStructureLabelPrice + labelOffset
             string structureSignalName = bearishBos ? "Bear BOS" : "Bear CHoCH"
             structureSignalName := internalBearishChoch ? structureSignalName + " + LTF Bear CHoCH" : structureSignalName
-            label.new(bar_index, labelPrice, structureLabelText(structureSignalName, buyVolumeUsdt, sellVolumeUsdt), style=label.style_label_down, color=sslColor, textcolor=color.white, size=size.tiny)
+            if buyVolume > sellVolume * 1.5
+                plotBearTrapSquare := true
+            label.new(bar_index, labelPrice, structureLabelText(structureSignalName, buyVolumeUsdt, sellVolumeUsdt, false), style=label.style_label_down, color=sslColor, textcolor=color.white, size=size.tiny)
             lastStructureLabelPrice := labelPrice
             lastStructureLabelBar := bar_index
             bearishStructureLabelDrawn := true
@@ -1054,9 +1162,13 @@ if internalBullishChoch
 if internalBearishChoch
     barSignal := barSignal == "" ? "LTF BEAR CHoCH -> EARLY ENTRY" : barSignal + " | LTF BEAR CHoCH"
 if showChochLabels and internalBullishChoch
-    label.new(bar_index, low, structureLabelText("LTF Bull CHoCH", buyVolumeUsdt, sellVolumeUsdt), yloc=yloc.belowbar, style=label.style_label_up, color=bslColor, textcolor=color.white, size=size.tiny)
+    if sellVolume > buyVolume * 1.5
+        plotBullTrapSquare := true
+    label.new(bar_index, low, structureLabelText("LTF Bull CHoCH", buyVolumeUsdt, sellVolumeUsdt, true), yloc=yloc.belowbar, style=label.style_label_up, color=bslColor, textcolor=color.white, size=size.tiny)
 if showChochLabels and internalBearishChoch and not bearishStructureLabelDrawn and not drawBearishProbabilityLabel
-    label.new(bar_index, high, structureLabelText("LTF Bear CHoCH", buyVolumeUsdt, sellVolumeUsdt), yloc=yloc.abovebar, style=label.style_label_down, color=sslColor, textcolor=color.white, size=size.tiny)
+    if buyVolume > sellVolume * 1.5
+        plotBearTrapSquare := true
+    label.new(bar_index, high, structureLabelText("LTF Bear CHoCH", buyVolumeUsdt, sellVolumeUsdt, false), yloc=yloc.abovebar, style=label.style_label_down, color=sslColor, textcolor=color.white, size=size.tiny)
 
 var table infoPanel = table.new(position.bottom_right, 8, 11, frame_color=color.new(chart.fg_color, 60), frame_width=1, border_color=color.new(chart.fg_color, 80), border_width=1)
 var table h4StatsPanel = table.new(position.top_right, 2, 5, frame_color=color.new(chart.fg_color, 60), frame_width=1, border_color=color.new(chart.fg_color, 80), border_width=1)
@@ -1081,8 +1193,20 @@ if barstate.islast or barstate.islastconfirmedhistory
     table.cell(h4StatsPanel, 1, 2, probabilityText, text_color=highProbabilityReversal ? color.black : chart.fg_color, text_size=size.small, bgcolor=probabilityBackground)
     color trendBiasColor = trendBias == "UP" ? bslColor : trendBias == "DOWN" ? sslColor : color.gray
     string trendBiasText = trendBias == "UP" ? "AUKŠTYN" : trendBias == "DOWN" ? "ŽEMYN" : "DIAPAZONAS"
+    string combinedTrendText = trendBiasText + " / " + sessionBiasText
+    if londonManipulationText != ""
+        combinedTrendText := combinedTrendText + " / " + londonManipulationText
+    bool isHtfBull = trendBiasText == "AUKŠTYN"
+    bool isHtfBear = trendBiasText == "ŽEMYN"
+    bool isSessionBull = str.contains(sessionBiasText, "BULL")
+    bool isSessionBear = str.contains(sessionBiasText, "BEAR")
+    color dynamicCellBg = color.new(color.gray, 50)
+    if isHtfBull
+        dynamicCellBg := isSessionBull ? color.new(color.green, 20) : color.new(color.green, 65)
+    else if isHtfBear
+        dynamicCellBg := isSessionBear ? color.new(color.red, 20) : color.new(color.red, 65)
     table.cell(h4StatsPanel, 0, 3, "Trendas (HTF)", text_color=chart.fg_color, text_size=size.small, bgcolor=color.new(color.black, 25))
-    table.cell(h4StatsPanel, 1, 3, trendBiasText, text_color=trendBiasColor, text_size=size.small, bgcolor=color.new(color.black, 25))
+    table.cell(h4StatsPanel, 1, 3, combinedTrendText, text_color=trendBiasColor, text_size=size.small, bgcolor=dynamicCellBg)
     string cvdDivergenceText = recentBearishCvdDivergence ? "BEAR DIV" : recentBullishCvdDivergence ? "BULL DIV" : "-"
     color cvdDivergenceColor = recentBearishCvdDivergence ? sslColor : recentBullishCvdDivergence ? bslColor : chart.fg_color
     color relativeVolumeColor = na(relativeVolume) ? chart.fg_color : relativeVolume >= 1.5 ? bslColor : relativeVolume < 1.0 ? color.gray : chart.fg_color
@@ -1119,6 +1243,7 @@ if barstate.islast or barstate.islastconfirmedhistory
         bool candleNoDemandBearishReversal = hasCandle and noDemandBearishReversal[candleIndex]
         bool candleBullishCvdDiv = hasCandle and bullishCvdDivergence[candleIndex]
         bool candleBearishCvdDiv = hasCandle and bearishCvdDivergence[candleIndex]
+        string candleMidRangeContext = hasCandle ? midRangeContextText[candleIndex] : ""
         float candleReversalProbability = reversalProbability[candleIndex]
         // The resistance cap is live-state only; never retroactively replace C2-C10 history.
         bool candleSellSideBiasLocked = candleIndex == 0 and sellSideBiasLocked
@@ -1166,6 +1291,8 @@ if barstate.islast or barstate.islastconfirmedhistory
             signalText := signalText == "" ? "NO DEMAND" : signalText + " | NO DEMAND"
         if candleExhStatus != ""
             signalText := candleExhStatus
+        if candleMidRangeContext != ""
+            signalText := signalText == "" ? candleMidRangeContext : signalText + " | " + candleMidRangeContext
         if candleIndex == 0
             wheelDashboardState := str.contains(signalText, "WHALE BUY") ? "BUY" : str.contains(signalText, "WHALE SELL") ? "SELL" : "NONE"
         color deltaColor = candleDelta >= 0 ? bslColor : sslColor
@@ -1277,3 +1404,10 @@ if showReversalFailureTable and not na(log_table) and (barstate.islast or barsta
             table.cell(log_table, 1, i + 1, array.get(failed_types, idx), text_color=array.get(failed_types, idx) == "Bull OB Fail" ? color.red : color.orange)
             table.cell(log_table, 2, i + 1, str.tostring(array.get(failed_closes, idx), format.mintick), text_color=color.white)
             table.cell(log_table, 3, i + 1, compactVolume(array.get(failed_volumes, idx)), text_color=color.white)
+
+plotshape(plotBearTrapSquare, title="Bear Break Trap (Bull Abs)", style=shape.square, location=location.belowbar, color=color.new(color.green, 0), size=size.small, force_overlay=true)
+plotshape(plotBullTrapSquare, title="Bull Break Trap (Bear Abs)", style=shape.square, location=location.abovebar, color=color.new(color.red, 0), size=size.small, force_overlay=true)
+plotshape(isMidRangeAbsBull, title="Mid Bull Shape", style=shape.circle, location=location.belowbar, color=color.new(color.green, 30), size=size.small)
+plotshape(isMidRangeAbsBear, title="Mid Bear Shape", style=shape.circle, location=location.abovebar, color=color.new(color.red, 30), size=size.small)
+plotshape(hiddenBullDiv, title="Hidden Bull CVD Shape", style=shape.triangledown, location=location.belowbar, color=color.new(color.orange, 20), size=size.small)
+plotshape(hiddenBearDiv, title="Hidden Bear CVD Shape", style=shape.triangleup, location=location.abovebar, color=color.new(color.orange, 20), size=size.small)

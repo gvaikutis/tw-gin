@@ -60,12 +60,16 @@ Buy and sell values throughout this indicator are estimates. TradingView supplie
 - A small crimson/red label is placed above the relevant candle for a bearish BOS or CHoCH continuation event.
 - Its title is `Bear BOS`, `Bear CHoCH`, or the same title with `+ LTF Bear CHoCH`.
 - It now shows two volume lines: estimated `Buy: $...` and `Sell: $...`.
+- A `⚠️ ` prefix marks a Bull Absorption Anomaly: estimated buy volume is more than 1.5x estimated sell volume during the bearish break. It warns that aggressive buying may be absorbed and the break can be a bearish fakeout.
+- The same label-emission branch sets a bright green square below that exact bearish-break candle (`Bear Break Trap (Bull Abs)`).
 - The label is offset upward when needed to reduce collisions with reversal labels.
 
 ### LTF CHoCH event boxes
 - A mint-green `LTF Bull CHoCH` label is placed below a bullish internal change-of-character candle.
 - A crimson/red `LTF Bear CHoCH` label is placed above a bearish internal change-of-character candle.
 - Both labels show estimated `Buy: $...` and `Sell: $...`.
+- A `⚡ ` prefix marks a Bear Absorption Anomaly on a bullish break when estimated sell volume is more than 1.5x estimated buy volume. A `⚠️ ` prefix marks the inverse Bull Absorption Anomaly on a bearish break.
+- The same label-emission branch sets a bright red square above the exact bullish-break candle when a Bear Absorption Anomaly is present (`Bull Break Trap (Bear Abs)`).
 - They are controlled by the `Show CHoCH labels` input.
 
 ## 4. Reversal-probability labels
@@ -98,6 +102,10 @@ The probability combines the script's observed sweep-reversal rate with volume, 
 
 ### Volume and reversal markers
 - Yellow circle above candle: `VOL CLIMAX ABS`, showing volume climax/absorption at the H4 high context.
+- Small semi-transparent green circle below candle: `MID BULL`. It requires the Mid-Range Context module, USDT candle volume above 1.25x the USDT volume SMA, price strictly inside the locked H4 levels and their statistical corridors, and Delta above +20%.
+- Small semi-transparent red circle above candle: `MID BEAR`. It uses the same Mid-Range Context volume and H4-range requirements, with Delta below -20%.
+- Small semi-transparent orange downward triangle below candle: bullish hidden CVD absorption. It requires the same Mid-Range Context conditions, a current low above the low three bars ago, and current CVD below CVD three bars ago.
+- Small semi-transparent orange upward triangle above candle: bearish hidden CVD absorption. It requires the same Mid-Range Context conditions, a current high below the high three bars ago, and current CVD above CVD three bars ago.
 - Orange downward triangle above candle with `EXH`: an exhaustion-reversal event.
 - Mint-green tiny upward triangle below the pivot bar: bullish CVD divergence. A dark-green `Buy: $...` label directly below it shows that pivot candle's estimated buy value.
 - Crimson/red tiny downward triangle above the pivot bar: bearish CVD divergence. A dark-red `Sell: $...` label directly above it shows that pivot candle's estimated sell value.
@@ -153,6 +161,7 @@ The probability combines the script's observed sweep-reversal rate with volume, 
   - Dark charcoal for superseded targets.
   - Green/red tints for bullish/bearish signals.
 - The bearish order-block cap can lock only live C1 to `SELL-SIDE BIAS / BEAR OB CAP`; historical C2-C10 rows are not overwritten.
+- Mid-Range Context is append-only. `MID BULL (+...%)`, `MID BEAR (-...%)`, and/or `CVD ABSORP` are appended with ` | ` to existing primary messages rather than replacing them. When no primary message exists, the context is shown on its own.
 
 ### Bottom-left optional failure table
 - Appears only when `Show invalidated Order Block failure table` is enabled.
