@@ -1,0 +1,316 @@
+VOLUME, DELTA, AND REVERSAL RULES
+
+All Buy, Sell, Total, and Delta values in this document are estimated from the
+indicator's lower-timeframe candle aggregation. They are not exchange bid/ask
+data. USDT values are the estimated volume multiplied by the chart close.
+
+1. CORE VOLUME AND DELTA SERIES
+
+- `totalVolumeUsdt` is the bar's traded USDT volume.
+- `buyVolumeUsdt` and `sellVolumeUsdt` are the estimated directional USDT
+  volumes.
+- `deltaVol` is estimated Buy Volume minus estimated Sell Volume.
+- `deltaPercent` is `(buyVolume - sellVolume) / (buyVolume + sellVolume) * 100`.
+- `relativeVolume` (RVOL) is `barVolumeUsdt / SMA(barVolumeUsdt, whaleLength)`.
+- The default `whaleLength` is 20 bars.
+
+2. CONFIGURABLE VOLUME AND DELTA THRESHOLDS
+
+Liquidity strength:
+- `volumeLength`: 20 bars by default.
+- `highVolumeMultiplier`: 1.0x by default.
+- A confirmed pivot is marked high-volume when its pivot-bar USDT volume is
+  greater than `SMA(barVolumeUsdt, volumeLength) * highVolumeMultiplier`.
+
+Institutional-volume spike:
+- `institutionalVolumeSmaLength`: 20 bars by default.
+- `institutionalVolumeMultiplier`: 1.8x by default.
+- An institutional volume spike requires
+  `barVolumeUsdt > SMA(barVolumeUsdt, institutionalVolumeSmaLength) *
+  institutionalVolumeMultiplier`.
+
+Whale volume:
+- `whaleLength`: 20 bars by default.
+- `whaleMultiplier`: 2.0 by default.
+- Whale Buy Volume requires
+  `buyVolumeUsdt > SMA(buyVolumeUsdt, whaleLength) +
+  whaleMultiplier * StDev(buyVolumeUsdt, whaleLength)`.
+- Whale Sell Volume requires
+  `sellVolumeUsdt > SMA(sellVolumeUsdt, whaleLength) +
+  whaleMultiplier * StDev(sellVolumeUsdt, whaleLength)`.
+
+Bull-sweep validation and momentum:
+- `negativeDeltaThreshold`: -12.0% by default.
+- `momentumDeltaThreshold`: 15.0% by default.
+- `momentumCmfThreshold`: 0.05 by default.
+- `requireBullConfirmation`: enabled by default.
+
+OI anomaly thresholds:
+- `oiSignificancePercent`: 15.0% of traded USDT volume by default.
+- `neutralDeltaBound`: 15.0% by default.
+- `bullishDeltaThreshold`: 15.0% by default.
+- `bearishDeltaThreshold`: -12.0% by default.
+
+3. REVERSAL PROBABILITY LABELS
+
+3.1 Qualifying setups
+
+Bullish sweep reversal:
+- An SSL / sell-side liquidity sweep occurred during the current or previous
+  three bars.
+- Current total USDT volume is greater than 1.5x the whale volume average.
+- Estimated Delta is positive (`deltaVol > 0`).
+
+Bearish sweep reversal:
+- A BSL / buy-side liquidity sweep occurred during the current or previous
+  three bars.
+- Current total USDT volume is greater than 1.5x the whale volume average.
+- Estimated Delta is negative (`deltaVol < 0`).
+
+Bullish exhaustion reversal, on 4-hour-or-higher charts only:
+- Price overlaps an active bullish order block, or an SSL sweep occurred during
+  the current or previous three bars.
+- The lower wick is at least 55% of the full candle range.
+- The candle closes green.
+- Total USDT volume is below 85% of its 20-bar total-volume SMA.
+- Estimated Delta is positive.
+
+Bearish exhaustion reversal, on 4-hour-or-higher charts only:
+- Price overlaps an active bearish order block, or a BSL sweep occurred during
+  the current or previous three bars.
+- The upper wick is at least 55% of the full candle range.
+- The candle closes red.
+- Total USDT volume is below 85% of its 20-bar total-volume SMA.
+- Estimated Delta is negative.
+
+Bullish order-block touch reversal, on every timeframe:
+- The candle overlaps an active bullish order block.
+- The candle closes green and above the prior close.
+- The lower wick is at least 45% of the full candle range.
+- The close is in the upper 40% of the candle range.
+- Estimated Delta is positive.
+
+Bearish order-block touch reversal, on every timeframe:
+- The candle overlaps an active bearish order block.
+- The candle closes red and below the prior close.
+- The upper wick is at least 45% of the full candle range.
+- The close is in the lower 40% of the candle range.
+- Estimated Delta is negative.
+
+An OB touch setup takes precedence over an exhaustion setup on the same candle.
+An active order block can produce one touch label while price remains inside it;
+it becomes eligible again only after price fully exits the block.
+
+3.2 Final label rendering filter
+
+Labels are drawn only when a qualifying setup starts, the bar is confirmed, and
+these final checks pass:
+- Bullish: the close is in the upper 40% of its range and above the prior close.
+- Bearish: the candle is red, its close is in the lower 40% of its range, and
+  it is below the prior close.
+- Bullish labels are placed at `low - ATR(14) * 0.4`.
+- Bearish labels are placed at `high + ATR(14) * 0.4`.
+
+4. REVERSAL PROBABILITY SCORE
+
+Probability is capped between 0% and 99%.
+
+Base score:
+- Sweep and exhaustion setups start with the historical completed-sweep success
+  rate: `successful completed sweep targets / all liquidity sweeps * 100`.
+- Order-block touch setups start at a fixed 40%.
+
+Additional weights:
+- Volume: +15 when current total USDT volume is greater than 2.0x its 20-bar
+  total-volume SMA; otherwise +10 when greater than 1.5x; otherwise +0.
+- Delta: +15 when `abs(deltaVol) / volume` is greater than 0.15; otherwise +10
+  when greater than 0.08; otherwise +0.
+- H4 corridor: +15 for a bullish qualifying setup at/below the lower corridor,
+  or a bearish qualifying setup at/above the upper corridor. OB-touch setups
+  do not receive this weight.
+- CVD divergence: +15 when a recent confirmed CVD divergence agrees with the
+  reversal direction. "Recent" means within `cvdDivergenceWindow`, five bars by
+  default.
+- Exhaustion setups receive no volume-weight bonus. Their base, Delta, H4, and
+  CVD-divergence components remain applicable.
+
+5. HIGH-VOLUME CLASSIFICATION
+
+The High-vol threshold is asset-relative and recalculates on every bar:
+- `dynamicVolumeSma = SMA(totalVolumeUsdt, 50)`.
+- `highVolThreshold = dynamicVolumeSma * 1.5`.
+
+`highVolThreshold` classifies a qualifying reversal using total USDT volume:
+- STRONG: probability is 50% or higher.
+- HIGH VOL: probability is below 50% and
+  `totalVolumeUsdt >= highVolThreshold`.
+- WEAK: probability is below 50% and
+  `totalVolumeUsdt < highVolThreshold`.
+
+6. REVERSAL LABEL CONTENT AND COLORS
+
+- Bullish labels display `Buy: $...` using the estimated Buy USDT volume.
+- Bearish labels display `Sell: $...` using the estimated Sell USDT volume.
+- Values use the same compact K/M/B formatter as the dashboard.
+- The strength classification always uses total USDT volume, not the displayed
+  directional volume.
+- Bullish STRONG labels are teal; bullish WEAK labels are orange; bullish HIGH
+  VOL labels are blue.
+- Bearish STRONG labels are orange; bearish WEAK labels are gray; bearish HIGH
+  VOL labels are purple.
+
+7. WHALE BUY AND WHALE SELL (BASE INDICATOR)
+
+WHALE BUY requires all of the following:
+- The candle overlaps an active bullish order block.
+- Whale Buy Volume is true: Buy USDT volume exceeds its configured SMA plus
+  `whaleMultiplier * standard deviation`.
+- `deltaPercent > 0`.
+- `totalVolumeUsdt > SMA(totalVolumeUsdt, 20)`.
+- There is no active potential bearish reversal.
+
+WHALE SELL requires all of the following:
+- The candle overlaps an active bearish order block.
+- Whale Sell Volume is true: Sell USDT volume exceeds its configured SMA plus
+  `whaleMultiplier * standard deviation`.
+- `deltaPercent < 0`.
+- `totalVolumeUsdt > SMA(totalVolumeUsdt, 20)`.
+
+If an active bearish order block remains above a Whale Buy, the base indicator
+dashboard shows `WHALE BUY -> TGT: BEAR OB [price]`. The AI-copy override is
+defined in Section 12.
+
+8. VOLUME CLIMAX, ABSORPTION, AND MID-RANGE CONTEXT
+
+Volume climax:
+- `isHighVolume` and `isVolumeClimax` require
+  `barVolumeUsdt > SMA(barVolumeUsdt, 20) * 1.8`.
+- Low volume requires `barVolumeUsdt < SMA(barVolumeUsdt, 20) * 0.8`.
+
+VOL CLIMAX ABS:
+- An institutional volume spike occurs at an SSL or BSL sweep.
+- Delta is positive.
+- The prior candle is green.
+- Current `deltaPercent` is below the prior candle's `deltaPercent`.
+- Price is at the H4 upper corridor confluence.
+- This condition plots the yellow `VOL CLIMAX ABS` marker and creates an orange
+  absorption ceiling.
+
+Dashboard absorption flags:
+- `AbBuyV`: a red candle with positive Delta, CMF below 0.02, Buy ratio at or
+  below 0.40, and a Volume Climax.
+- `AbSellV`: a green candle with negative Delta, CMF above -0.02, Buy ratio at
+  or above 0.60, and a Volume Climax.
+
+Mid-range context:
+- Mid-range volume requires `barVolumeUsdt > SMA(barVolumeUsdt, 20) * 1.25`.
+- Price must be inside the locked H4 range and its statistical corridors.
+- `MID BULL` requires this context and `deltaPercent > 20`.
+- `MID BEAR` requires this context and `deltaPercent < -20`.
+- CVD absorption context is also added when the corresponding three-bar hidden
+  price/CVD divergence is present.
+
+9. ORDER-BLOCK INVALIDATION AND OI ANOMALIES
+
+Bullish order-block invalidation requires a close at/below the block bottom plus
+one of:
+- `deltaPercent < -25.0` and `relativeVolume > 1.5`; or
+- Three-bar cumulative `deltaPercent < -40.0`.
+
+Bearish order-block invalidation requires a close at/above the block top plus
+one of:
+- `deltaPercent > 25.0` and `relativeVolume > 1.5`; or
+- Three-bar cumulative `deltaPercent > 40.0`.
+
+OI significance requires:
+- `abs(oiDeltaUsdt) > tradedVolumeUsdt * oiSignificancePercent / 100`.
+
+When OI is significant:
+- Institutional Accumulation: positive OI Delta and
+  `abs(deltaPercent) <= neutralDeltaBound`.
+- Aggressive Short Squeeze: negative OI Delta and
+  `deltaPercent > bullishDeltaThreshold`.
+- Aggressive Long Squeeze: negative OI Delta and
+  `deltaPercent < bearishDeltaThreshold`.
+
+10. CURRENTLY INACTIVE ABSORPTION INPUTS
+
+`absorptionSmaLength` (default 10) and `absorptionVolumeMultiplier` (default
+1.5) are exposed in settings but are not currently referenced by a signal,
+filter, or trigger. Changing either setting does not change indicator behavior.
+
+11. AI COPY: KNN CONFIDENCE SCORE
+
+This section applies only to `Last Candle Volume Info_AI.pine`.
+
+- The KNN classifier evaluates new bullish and bearish sweep-reversal events,
+  not exhaustion-only or order-block-touch-only reversal setups.
+- Each training sample contains:
+  - `f1`: `deltaPercent`, clamped to the -100 to +100 range.
+  - `f2`: the existing RVOL (`relativeVolume`) series.
+  - `f3`: close position in the H4 corridor:
+    `(close - lower_corridor) / (upper_corridor - lower_corridor)`, clamped to
+    the 0 to 1 range.
+- A sample is recorded only after its sweep-reversal event is confirmed and all
+  three feature values are available.
+- The outcome horizon is configurable through `KNN outcome horizon (bars)`,
+  with a default of five bars. A bullish sample succeeds when its horizon close
+  is above its entry close; a bearish sample succeeds when its horizon close is
+  below its entry close.
+- The AI memory is capped at 200 events. Each new sample and its pending or
+  resolved outcome are pruned together with the oldest sample.
+- Prediction compares the current features with resolved historical samples
+  using Euclidean distance. Delta distance is divided by 100 so its clamped
+  percentage scale is comparable to the other features.
+- The five nearest resolved samples determine `aiConfidenceScore`:
+  `successful neighbors / 5 * 100`.
+- `aiConfidenceScore` remains unavailable until five resolved, feature-complete
+  historical samples exist. When available, reversal labels append
+  `| AI: NN%`; the score does not change existing reversal probability,
+  strength, colors, targets, or alerts.
+
+12. AI COPY: WHALE COUNTER-TREND SIGNAL OVERRIDE
+
+This section applies only to `Last Candle Volume Info_AI.pine`.
+
+- A WHALE BUY is rendered as `WHALE BUY 🐋`; it never appends a bearish
+  order-block target.
+- When a fresh WHALE BUY occurs against an active Bear target, C1 suppresses
+  Bear-target text and displays `WHALE BUY 🐋`. Subsequent live recovery bars
+  display `WHALE BUY | ACCUMULATION` until a newly confirmed bearish setup.
+- The inverse rule applies to a fresh WHALE SELL against an active Bull target:
+  C1 displays `WHALE SELL 🐋`, later recovery bars display
+  `WHALE SELL | DISTRIBUTION`, and Bull-target text is suppressed until a newly
+  confirmed bullish setup.
+- The recovery override affects only C1. It does not rewrite C2-C10 historical
+  dashboard rows or delete the active target line.
+
+13. FIBONACCI TARGET RANGE CAP
+
+This section applies to both `Last Candle Volume Info.pine` and
+`Last Candle Volume Info_AI.pine`.
+
+- The target range uses the latest 20 bars:
+  - `swingHigh = highest high`
+  - `swingLow = lowest low`
+  - `swingRange = swingHigh - swingLow`
+- Bearish sweep, reversal, and BOS/CHoCH order-block targets cannot be below
+  `fibCapPrice = swingHigh - swingRange * 0.618`. A lower selected SSL or
+  bullish order-block price is replaced with this cap.
+- Bullish sweep and reversal targets cannot be above
+  `fibCapPriceBull = swingLow + swingRange * 0.618`. A higher selected BSL
+  price is replaced with this cap.
+- The capped price is applied before target-distance validation and is reused
+  for the yellow target line, target label, active target state, and dashboard
+  target text.
+
+14. AI COPY: LIVE TARGET DIRECTION SAFEGUARD
+
+This section applies only to `Last Candle Volume Info_AI.pine`.
+
+- After applying the Fibonacci cap, a bearish target at or above the current
+  close is replaced with `low - ATR(14) * 0.5`.
+- After applying the Fibonacci cap, a bullish target at or below the current
+  close is replaced with `high + ATR(14) * 0.5`.
+- The safeguard runs before target-distance validation and covers both selected
+  liquidity targets and bearish BOS/CHoCH order-block continuation targets.

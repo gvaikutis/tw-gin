@@ -2,7 +2,7 @@
 
 Source: PineScripts/Last Candle Volume Info.pine
 
-Buy and sell values throughout this indicator are estimates. TradingView supplies total bar volume, so the script allocates it from the candle close's position within its high-low range. They are not exchange bid/ask figures.
+Buy and sell values throughout this indicator are directional-volume estimates, not exchange bid/ask figures. Closed candles use the direction of their contained one-minute candles: up = Buy, down = Sell, and doji = split evenly. During a live candle, closed one-minute bars retain that allocation while new tick volume is accumulated by tick-price direction. When one-minute data is unavailable, closed candles fall back to allocating total volume from the candle close's position within its high-low range.
 
 ## 1. Liquidity levels
 
@@ -113,6 +113,15 @@ The probability combines the script's observed sweep-reversal rate with volume, 
 - Fuchsia upward triangle below candle with `SQ`: aggressive short squeeze, requiring significant negative OI change with strongly positive delta.
 - Orange downward triangle above candle with `LQ`: aggressive long squeeze, requiring significant negative OI change with strongly negative delta.
 
+### BTC SMT divergence markers
+- The BTC Correlation Settings group controls the module with `Show BTC SMT divergence`, `BTC reference asset`, `SMT lookback bars`, and `Show BTC SMT chart markers`.
+- BTC close, high, and low are requested at the chart timeframe with `gaps_off` and `lookahead_off`.
+- A small solid-white downward arrow directly above a candle is a bearish BTC SMT divergence (`ALT WEAK`): BTC close or high rose from the selected lookback while the chart asset's close or high fell.
+- A small solid-white upward arrow directly below a candle is a bullish BTC SMT divergence (`ALT STRONG`): BTC close or low fell from the selected lookback while the chart asset's close or low rose.
+- The markers use `offset=0`, so each symbol stays aligned with its divergence candle.
+- When the current chart `syminfo.basecurrency` is `BTC`, or its `syminfo.tickerid` matches the selected BTC reference asset, both SMT conditions and the dashboard SMT context are forced off. This covers BTC spot, perpetual, and futures charts, so the reference asset is never compared with itself.
+- Markers appear only when both the main BTC SMT toggle and chart-marker toggle are enabled and sufficient chart/BTC history exists.
+
 ### Open-interest value annotations
 - Aqua plain text below an institutional-accumulation candle: positive OI change in USDT, such as `+$1.25M`.
 - Fuchsia plain text below a short-squeeze candle: negative OI change in USDT.
@@ -162,6 +171,7 @@ The probability combines the script's observed sweep-reversal rate with volume, 
   - Green/red tints for bullish/bearish signals.
 - The bearish order-block cap can lock only live C1 to `SELL-SIDE BIAS / BEAR OB CAP`; historical C2-C10 rows are not overwritten.
 - Mid-Range Context is append-only. `MID BULL (+...%)`, `MID BEAR (-...%)`, and/or `CVD ABSORP` are appended with ` | ` to existing primary messages rather than replacing them. When no primary message exists, the context is shown on its own.
+- BTC SMT context is also append-only. `⚠️ ALT WEAK (BTC RISING)` marks bearish relative weakness, while `🚀 ALT STRONG (BTC FALLING)` marks bullish relative strength. It is appended with ` | ` after the candle's other dashboard context and does not create a dedicated signal background.
 
 ### Bottom-left optional failure table
 - Appears only when `Show invalidated Order Block failure table` is enabled.

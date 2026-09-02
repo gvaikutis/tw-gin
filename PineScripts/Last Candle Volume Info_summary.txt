@@ -80,6 +80,15 @@ Spalva nurodo lygio tipą ir krypties kontekstą. Linijos stilius nurodo būsen�
 - Esami sweep, Whale, Order Block ir H4 signalai neperrašomi: mid-range kontekstas prie jų tik prijungiamas.
 - MID BULL žymimas mažu žaliu apskritimu po žvake, MID BEAR - mažu raudonu apskritimu virš žvakės. CVD ABSORP žymimas mažu oranžiniu trikampiu: bullish po žvake, bearish virš žvakės.
 
+10B. BTC SMT DIVERGENCIJA - SANTYKINIS ALTCOIN STIPRUMAS / SILPNUMAS
+- Modulis valdomas "BTC Correlation Settings" grupės nustatymais: "Show BTC SMT divergence", "BTC reference asset" (numatyta `BINANCE:BTCUSDT`), "SMT lookback bars" (1-10, numatyta 3) ir "Show BTC SMT chart markers".
+- BTC close, high ir low gaunami tame pačiame kaip grafiko laiko intervale su `request.security()`, `gaps_off` ir `lookahead_off`, todėl istoriniams signalams nenaudojami ateities duomenys.
+- Bearish SMT / ALT WEAK: BTC close arba high yra aukštesnis nei prieš lookback barų, o altcoin close arba high yra žemesnis. SIGNAL / BIAS tekstui pridedama `⚠️ ALT WEAK (BTC RISING)`.
+- Bullish SMT / ALT STRONG: BTC close arba low yra žemesnis nei prieš lookback barų, o altcoin close arba low yra aukštesnis. SIGNAL / BIAS tekstui pridedama `🚀 ALT STRONG (BTC FALLING)`.
+- SMT kontekstas rodomas tik kai yra pakankamai BTC ir grafiko istorijos. Jis prijungiamas prie esamo pranešimo su `|` ir jo neperrašo.
+- Kai grafiko `syminfo.basecurrency` yra `BTC` arba `syminfo.tickerid` sutampa su pasirinktu BTC reference asset, abu SMT signalai ir dashboard SMT kontekstas yra priverstinai išjungti. Tai apima BTC spot, perpetual ir futures grafikus bei neleidžia atsirasti klaidingiems savęs palyginimo signalams ir žymenims.
+- Įjungus "Show BTC SMT chart markers", bearish SMT žymimas maža balta rodykle žemyn tiesiai virš žvakės high, bullish SMT - maža balta rodykle aukštyn tiesiai po žvakės low. Žymenys yra visiškai nepermatomi ir neturi istorinio poslinkio (`offset=0`).
+
 11. PROCENTŲ ETIKETĖS ANT GRAFIKO
 - Turkio procentas po kaina: bullish reversal tikimybė po SSL sweep, kai apimtis ir Delta palaiko kilimą.
 - Oranžinis procentas virš kainos: bearish reversal tikimybė po BSL sweep, kai apimtis ir Delta palaiko kritimą.
@@ -99,13 +108,13 @@ Spalva nurodo lygio tipą ir krypties kontekstą. Linijos stilius nurodo būsen�
 - "RVOL (x vidurkis)": dabartinės žvakės USDT apimtis padalinta iš USDT apimties vidurkio; žalias nuo 1.5x (stipri apimtis), pilkas žemiau 1.0x (plona).
 
 13. CANDLE VOLUME DASHBOARD APAČIOJE DEŠINĖJE
-- BUY (USDT) / SELL (USDT): įvertinta pirkimo ir pardavimo apimtis USDT verte (estimated volume × close) pagal žvakės užsidarymo vietą range viduje; tai nėra biržos bid/ask duomenys.
+- BUY (USDT) / SELL (USDT): uždarytų žvakių 1 min. intrabar apimtis klasifikuojama pagal kryptį (close > open = BUY, close < open = SELL, doji = 50/50) ir konvertuojama į USDT (estimated volume × close). Gyvoje žvakėje jau uždaryti 1 min. barai išlaiko šią klasifikaciją, o dar neklasifikuota nauja apimtis kaupiama pagal kiekvieno naujo tick kainos kryptį, todėl BUY ir SELL reikšmės tarp 1 min. barų uždarymų tik didėja. Jei 1 min. duomenų nėra, uždarytoms žvakėms naudojamas ankstesnis skaičiavimas pagal pagrindinės žvakės close vietą range viduje. Tai nėra biržos bid/ask duomenys.
 - TOTAL (USDT): bendra žvakės apimtis USDT verte (volume × close).
 - DELTA: BUY ir SELL įvertintos apimties skirtumas procentais.
 - CMF: Chaikin Money Flow reikšmė.
 - OI DELTA: konkrečios žvakės Open Interest pokytis USDT verte ir visas OI skliausteliuose, pvz. "+147.43K ($2.45B)".
-- SIGNAL / BIAS: aktyvus sweep, target, CHoCH, Whale, Order Block test, institutional volume, CVD divergencija (BULL DIV / BEAR DIV), Mid-Range Context arba trend bias pranešimas.
-- Mid-Range Context neperrašo pirminio pranešimo. Kai jis sutampa su esamu signalu, tekstas prijungiamas su `|`, pavyzdžiui: `WHALE SELL | MID BEAR (-34.00%) | CVD ABSORP`. Jei pirminio pranešimo nėra, rodomas vien `MID BULL (+25.00%)`, `MID BEAR (-25.00%)` arba `CVD ABSORP`.
+- SIGNAL / BIAS: aktyvus sweep, target, CHoCH, Whale, Order Block test, institutional volume, CVD divergencija (BULL DIV / BEAR DIV), Mid-Range Context, BTC SMT arba trend bias pranešimas.
+- Mid-Range ir BTC SMT kontekstai neperrašo pirminio pranešimo. Kai jie sutampa su esamu signalu, tekstas prijungiamas su `|`, pavyzdžiui: `WHALE SELL | MID BEAR (-34.00%) | CVD ABSORP | ⚠️ ALT WEAK (BTC RISING)`. Jei pirminio pranešimo nėra, rodomas vien konteksto pranešimas.
 
 14. MAŽI TRIKAMPIAI - CVD DIVERGENCIJA
 - Žalias trikampis (▲) po žvake ties pivot low: bullish CVD divergencija - kaina padarė žemesnį low, o CVD (kaupiamoji Delta) padarė aukštesnį low. Pardavėjai silpsta.
@@ -124,6 +133,7 @@ TRUMPAS SPALVŲ ŽEMĖLAPIS
 - Violetinė dėžė: Bearish Order Block pasipriešinimo zona.
 - Žalias trikampis po žvake: bullish CVD divergencija. Raudonas trikampis virš žvakės: bearish CVD divergencija.
 - Pusiau skaidrus žalias / raudonas apskritimas: atitinkamai MID BULL / MID BEAR in-range kontekstas. Pusiau skaidrus oranžinis trikampis: 3 žvakių CVD absorption kontekstas.
+- Balta rodyklė aukštyn po žvakės low: bullish BTC SMT / ALT STRONG. Balta rodyklė žemyn virš žvakės high: bearish BTC SMT / ALT WEAK.
 
 15. OI ŽYMENYS ANT ŽVAKIŲ
 - Žydras rombas po žvake: Institutional Accumulation. OI didėja, Delta yra neutralus, o OI pokytis viršija reikšmingo OI dydį.

@@ -13,9 +13,9 @@ maxTargetDistancePercent = input.float(2.0, "Maximum target distance (%)", minva
 useAtrDistanceFilter = input.bool(false, "Use ATR distance cap", group="Target Validation")
 atrLength = input.int(14, "ATR length", minval=1, group="Target Validation")
 atrDistanceMultiplier = input.float(1.5, "Maximum ATR distance", minval=0.1, step=0.1, group="Target Validation")
-negativeDeltaThreshold = input.float(-12.0, "Negative Delta failure threshold", maxval=-0.1, step=1.0, group="Volume Validation")
+negativeDeltaThreshold = input.float(-25.0, "Negative Delta failure threshold", maxval=-0.1, step=1.0, group="Volume Validation")
 requireBullConfirmation = input.bool(true, "Require Delta or CMF bull confirmation", group="Volume Validation")
-momentumDeltaThreshold = input.float(15.0, "Bullish momentum delta threshold", minval=1.0, maxval=100.0, step=1.0, group="Trend / Momentum Filter")
+momentumDeltaThreshold = input.float(35.0, "Bullish momentum delta threshold", minval=1.0, maxval=100.0, step=1.0, group="Trend / Momentum Filter")
 momentumCmfThreshold = input.float(0.05, "Bullish momentum CMF threshold", minval=0.0, step=0.01, group="Trend / Momentum Filter")
 useTrendMomentumFilter = input.bool(true, "Block counter-trend bear sweeps", group="Trend / Momentum Filter")
 minorStructureBars = input.int(3, "Minor structure pivot bars", minval=1, group="CHoCH Continuation")
@@ -31,9 +31,13 @@ showInstitutionalVolumeMarkers = input.bool(true, "Mark institutional sweeps and
 cmfLength = input.int(20, "CMF length", minval=1, group="Candle Volume Dashboard")
 whaleLength = input.int(20, "Volume average length", minval=1, group="Candle Volume Dashboard")
 whaleMultiplier = input.float(2.0, "Volume deviation multiplier", minval=0.1, step=0.1, group="Candle Volume Dashboard")
-tableSellColor = input.color(#ff3b5c, "Sell / negative Delta color", group="Candle Volume Dashboard")
 reversalOutcomeWindow = input.int(20, "Target outcome window (bars)", minval=1, group="Reversal Probability")
+int highVolThresholdScalp = input.int(10000000, "High-vol threshold (≤ 15m)", minval=0, step=1000000, group="Reversal Probability")
+int highVolThresholdIntraday = input.int(10000000, "High-vol threshold (16m–1H)", minval=0, step=1000000, group="Reversal Probability")
+int highVolThresholdSwing = input.int(10000000, "High-vol threshold (2H+)", minval=0, step=1000000, group="Reversal Probability")
+// Threshold auto-selected from the chart timeframe so HIGH VOL scales across intervals.
 float chartTimeframeSeconds = timeframe.in_seconds(timeframe.period)
+int highVolThreshold = chartTimeframeSeconds <= 900 ? highVolThresholdScalp : chartTimeframeSeconds <= 3600 ? highVolThresholdIntraday : highVolThresholdSwing
 obMergePercent = input.float(0.15, "OB merge tolerance (%)", minval=0.001, step=0.01, group="Order Block Clustering")
 useAtrObMerge = input.bool(true, "Use ATR OB merge tolerance", group="Order Block Clustering")
 obMergeAtrMultiplier = input.float(0.75, "OB merge ATR multiplier", minval=0.01, step=0.05, group="Order Block Clustering")
@@ -59,8 +63,8 @@ string sessionTimezone = input.string("Etc/UTC", "Session timezone", group=sessi
 string oiAnomalyGroup = "OI Anomaly Alerts"
 oiSignificancePercent = input.float(15.0, "Significant OI (% of traded USDT volume)", minval=0.1, maxval=100.0, step=0.1, group=oiAnomalyGroup)
 neutralDeltaBound = input.float(15.0, "Neutral volume delta bound (%)", minval=0.0, maxval=100.0, step=1.0, group=oiAnomalyGroup)
-bullishDeltaThreshold = input.float(15.0, "Bullish volume delta threshold (%)", minval=0.0, maxval=100.0, step=1.0, group=oiAnomalyGroup)
-bearishDeltaThreshold = input.float(-12.0, "Bearish volume delta threshold (%)", minval=-100.0, maxval=0.0, step=1.0, group=oiAnomalyGroup)
+bullishDeltaThreshold = input.float(35.0, "Bullish volume delta threshold (%)", minval=0.0, maxval=100.0, step=1.0, group=oiAnomalyGroup)
+bearishDeltaThreshold = input.float(-35.0, "Bearish volume delta threshold (%)", minval=-100.0, maxval=0.0, step=1.0, group=oiAnomalyGroup)
 string btcCorrelationGroup = "BTC Correlation Settings"
 bool show_btc_div = input.bool(true, "Show BTC SMT divergence", group=btcCorrelationGroup)
 string btc_ticker = input.symbol("BINANCE:BTCUSDT", "BTC reference asset", group=btcCorrelationGroup)
@@ -407,57 +411,12 @@ else
     h4HighProjectionLine := na
     h4LowProjectionLine := na
 
-// Classify each available one-minute intrabar by its candle direction. This remains
-// directional-volume analysis, not exchange-provided bid/ask order-flow data.
+// TradingView provides total volume, so Buy/Sell values are estimated from the close location in each candle.
 float candleRange = high - low
+float buyRatio = candleRange > 0 ? (close - low) / candleRange : 0.5
 float barVolumeUsdt = volume * close
-float legacyBuyRatio = candleRange > 0 ? (close - low) / candleRange : 0.5
-float legacyBuyVolume = volume * legacyBuyRatio
-float legacySellVolume = volume - legacyBuyVolume
-bool supportsOneMinuteIntrabars = not na(chartTimeframeSeconds) and chartTimeframeSeconds > 60
-array<float> intrabarBuyVolumes = array.new_float()
-array<float> intrabarSellVolumes = array.new_float()
-if supportsOneMinuteIntrabars
-    intrabarBuyVolumes := request.security_lower_tf(syminfo.tickerid, "1", close > open ? volume : close < open ? 0.0 : volume * 0.5)
-    intrabarSellVolumes := request.security_lower_tf(syminfo.tickerid, "1", close < open ? volume : close > open ? 0.0 : volume * 0.5)
-float intrabarBuyVolume = array.sum(intrabarBuyVolumes)
-float intrabarSellVolume = array.sum(intrabarSellVolumes)
-bool hasIntrabarVolume = array.size(intrabarBuyVolumes) > 0 and array.size(intrabarSellVolumes) > 0 and not na(intrabarBuyVolume) and not na(intrabarSellVolume)
-float intrabarTotalVolume = intrabarBuyVolume + intrabarSellVolume
-varip float liveClassifiedIntrabarVolume = 0.0
-varip float livePendingBuyVolume = 0.0
-varip float livePendingSellVolume = 0.0
-varip float liveAccountedVolume = 0.0
-varip float livePreviousPrice = na
-bool isLiveChartBar = barstate.islast and barstate.isrealtime
-if isLiveChartBar
-    bool startsNewChartBar = barstate.isnew
-    bool completedIntrabarVolumeChanged = not startsNewChartBar and intrabarTotalVolume != liveClassifiedIntrabarVolume
-    if startsNewChartBar or completedIntrabarVolumeChanged or volume < liveAccountedVolume
-        liveClassifiedIntrabarVolume := intrabarTotalVolume
-        livePendingBuyVolume := 0.0
-        livePendingSellVolume := 0.0
-        liveAccountedVolume := intrabarTotalVolume
-    if startsNewChartBar
-        livePreviousPrice := close
-    float incomingLiveVolume = math.max(volume - liveAccountedVolume, 0.0)
-    if incomingLiveVolume > 0
-        if na(livePreviousPrice) or close == livePreviousPrice
-            livePendingBuyVolume += incomingLiveVolume * 0.5
-            livePendingSellVolume += incomingLiveVolume * 0.5
-        else if close > livePreviousPrice
-            livePendingBuyVolume += incomingLiveVolume
-        else
-            livePendingSellVolume += incomingLiveVolume
-        liveAccountedVolume += incomingLiveVolume
-    livePreviousPrice := close
-// Closed one-minute bars retain their LTF classification; only the still-developing
-// portion is classified from each incoming tick, so provisional values do not decrease.
-float liveBuyVolume = intrabarBuyVolume + livePendingBuyVolume
-float liveSellVolume = intrabarSellVolume + livePendingSellVolume
-float buyVolume = isLiveChartBar ? liveBuyVolume : hasIntrabarVolume ? intrabarBuyVolume : legacyBuyVolume
-float sellVolume = isLiveChartBar ? liveSellVolume : hasIntrabarVolume ? intrabarSellVolume : legacySellVolume
-float buyRatio = volume > 0 ? buyVolume / volume : 0.5
+float buyVolume = volume * buyRatio
+float sellVolume = volume - buyVolume
 float ltf_buy_vol = buyVolume
 float ltf_sell_vol = sellVolume
 float buyVolumeUsdt = buyVolume * close
@@ -504,8 +463,6 @@ float totalVolume = buyVolume + sellVolume
 float dashboardBuyVolume = buyVolumeUsdt
 float dashboardSellVolume = sellVolumeUsdt
 float totalVolumeSma = ta.sma(totalVolumeUsdt, 20)
-float dynamicVolumeSma = ta.sma(totalVolumeUsdt, 50)
-float highVolThreshold = dynamicVolumeSma * 1.5
 float volumeSma20 = ta.sma(barVolumeUsdt, 20)
 bool isHighVolume = not na(volumeSma20) and barVolumeUsdt > volumeSma20 * 1.8
 bool isLowVolume = not na(volumeSma20) and barVolumeUsdt < volumeSma20 * 0.8
@@ -891,7 +848,7 @@ float reversalBaselineProbability = obTouchReversalSetup ? 40.0 : totalLiquidity
 bool reversalAlignmentActive = bullishProbabilityLabel or bearishProbabilityLabel
 float deltaRatio = volume > 0 ? math.abs(deltaVol) / volume : 0.0
 float reversalVolumeWeight = reversalAlignmentActive and not exhaustionReversalSetup ? barVolumeUsdt > totalVolumeSma * 2.0 ? 15.0 : barVolumeUsdt > totalVolumeSma * 1.5 ? 10.0 : 0.0 : 0.0
-float reversalDeltaWeight = reversalAlignmentActive ? deltaRatio > 0.15 ? 15.0 : deltaRatio > 0.08 ? 10.0 : 0.0 : 0.0
+float reversalDeltaWeight = reversalAlignmentActive ? deltaRatio > 0.35 ? 15.0 : deltaRatio > 0.20 ? 10.0 : 0.0 : 0.0
 bool bullishH4ReversalConfluence = not obTouchReversalSetup and bullishProbabilityLabel and not na(lower_corridor) and low <= lower_corridor
 bool bearishH4ReversalConfluence = not obTouchReversalSetup and bearishProbabilityLabel and not na(upper_corridor) and high >= upper_corridor
 float reversalH4Weight = bullishH4ReversalConfluence or bearishH4ReversalConfluence ? 15.0 : 0.0
@@ -1066,11 +1023,6 @@ if bearishBos
 float forecastTarget = na
 int bestPriority = -1
 float bestDistance = na
-float swingHigh = ta.highest(high, 20)
-float swingLow = ta.lowest(low, 20)
-float swingRange = swingHigh - swingLow
-float fibCapPrice = swingHigh - swingRange * 0.618
-float fibCapPriceBull = swingLow + swingRange * 0.618
 bool bullishSweep = sslSwept and not bslSwept
 bool bearishSweep = bslSwept and not sslSwept
 bool freshWhaleBuy = insideBullishOb and isWhaleBuyVolume and deltaPercent > 0 and totalVolumeUsdt > totalVolumeSma and not isPotentialBearishReversal
@@ -1120,11 +1072,6 @@ if requestedTrend != "NONE" and zoneCount > 0
                 bestPriority := priority
                 bestDistance := distance
                 forecastTarget := zone.level
-
-if requestedTrend == "BEAR" and not na(forecastTarget) and forecastTarget < fibCapPrice
-    forecastTarget := fibCapPrice
-else if requestedTrend == "BULL" and not na(forecastTarget) and forecastTarget > fibCapPriceBull
-    forecastTarget := fibCapPriceBull
 
 float targetDistancePercent = not na(forecastTarget) ? math.abs(close - forecastTarget) / close * 100 : na
 bool targetIsDistant = not na(forecastTarget) and (targetDistancePercent > maxTargetDistancePercent or (useAtrDistanceFilter and math.abs(close - forecastTarget) > atrValue * atrDistanceMultiplier))
@@ -1198,8 +1145,6 @@ if bearishContinuation
                 bestObTouches := block.touches
                 bestObDistance := distance
                 continuationTarget := block.top
-    if not na(continuationTarget) and continuationTarget < fibCapPrice
-        continuationTarget := fibCapPrice
     if not na(continuationTarget)
         if targetActive
             supersededOriginBar := targetOriginBar
@@ -1295,7 +1240,7 @@ if barstate.islast or barstate.islastconfirmedhistory
     table.cell(h4StatsPanel, 1, 4, cvdDivergenceText + " / " + relativeVolumeText, text_color=cvdDivergenceText == "-" ? relativeVolumeColor : cvdDivergenceColor, text_size=size.small, bgcolor=color.new(color.black, 25))
     table.cell(infoPanel, 0, 0, "Bar", text_color=chart.fg_color, text_size=size.tiny, bgcolor=color.new(color.black, 15), text_halign=text.align_center)
     table.cell(infoPanel, 1, 0, "BUY (USDT)", text_color=bslColor, text_size=size.tiny, bgcolor=color.new(color.black, 15), text_halign=text.align_center)
-    table.cell(infoPanel, 2, 0, "SELL (USDT)", text_color=tableSellColor, text_size=size.tiny, bgcolor=color.new(color.black, 15), text_halign=text.align_center)
+    table.cell(infoPanel, 2, 0, "SELL (USDT)", text_color=sslColor, text_size=size.tiny, bgcolor=color.new(color.black, 15), text_halign=text.align_center)
     table.cell(infoPanel, 3, 0, "TOTAL (USDT)", text_color=chart.fg_color, text_size=size.tiny, bgcolor=color.new(color.black, 15), text_halign=text.align_center)
     table.cell(infoPanel, 4, 0, "DELTA", text_color=chart.fg_color, text_size=size.tiny, bgcolor=color.new(color.black, 15), text_halign=text.align_center)
     table.cell(infoPanel, 5, 0, "CMF", text_color=chart.fg_color, text_size=size.tiny, bgcolor=color.new(color.black, 15), text_halign=text.align_center)
@@ -1382,7 +1327,7 @@ if barstate.islast or barstate.islastconfirmedhistory
             signalText := signalText == "" ? btcContextText : signalText + " | " + btcContextText
         if candleIndex == 0
             wheelDashboardState := str.contains(signalText, "WHALE BUY") ? "BUY" : str.contains(signalText, "WHALE SELL") ? "SELL" : "NONE"
-        color deltaColor = candleDelta >= 0 ? bslColor : tableSellColor
+        color deltaColor = candleDelta >= 0 ? bslColor : sslColor
         color cmfColor = candleCmf >= 0 ? bslColor : sslColor
         bool reversalSignal = str.contains(signalText, "REVERSAL")
         bool bullishReversal = reversalSignal and (str.contains(signalText, "BULL") or candleDelta >= momentumDeltaThreshold)
@@ -1403,7 +1348,7 @@ if barstate.islast or barstate.islastconfirmedhistory
         color historicalOiBackground = not hasHistoricalOi ? color.new(color.gray, 85) : historicalOiUsdtDelta > 0 ? color.new(bslColor, 85) : historicalOiUsdtDelta < 0 ? color.new(sslColor, 85) : color.new(color.black, 25)
         table.cell(infoPanel, 0, row, hasCandle ? "C" + str.tostring(candleIndex + 1) : "-", text_color=chart.fg_color, text_size=size.tiny, bgcolor=color.new(color.black, 25), text_halign=text.align_center)
         table.cell(infoPanel, 1, row, buyText, text_color=bslColor, text_size=size.tiny, bgcolor=color.new(color.black, 25), text_halign=text.align_center)
-        table.cell(infoPanel, 2, row, sellText, text_color=tableSellColor, text_size=size.tiny, bgcolor=color.new(color.black, 25), text_halign=text.align_center)
+        table.cell(infoPanel, 2, row, sellText, text_color=sslColor, text_size=size.tiny, bgcolor=color.new(color.black, 25), text_halign=text.align_center)
         table.cell(infoPanel, 3, row, totalText, text_color=chart.fg_color, text_size=size.tiny, bgcolor=color.new(color.black, 25), text_halign=text.align_center)
         table.cell(infoPanel, 4, row, deltaText, text_color=deltaColor, text_size=size.tiny, bgcolor=color.new(color.black, 25), text_halign=text.align_center)
         table.cell(infoPanel, 5, row, cmfText, text_color=cmfColor, text_size=size.tiny, bgcolor=color.new(color.black, 25), text_halign=text.align_center)
