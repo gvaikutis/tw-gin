@@ -1,143 +1,375 @@
-LIQUIDITY MAP - LINIJŲ IR ŽYMŲ LEGENDA
+AI LIQUIDITY MAP - CANONICAL INDICATOR REFERENCE
 
-PAGRINDINĖ TAISYKLĖ
-Spalva nurodo lygio tipą ir krypties kontekstą. Linijos stilius nurodo būseną:
-- aktyvi linija tęsiasi į dešinę;
-- brūkšninė pilka linija yra jau paliestas / mitigated istorinis lygis;
-- storesnė ir ryškesnė linija reiškia stipresnį lygį (Equal High / Equal Low arba didelė apimtis).
+Scope
+-----
 
-1. MINT / ŽALSVAI TURKIO SPALVOS LINIJOS - BSL
-- Reikšmė: Buy-Side Liquidity (BSL), likvidumas virš ankstesnių swing high / pivot high.
-- Kaina gali būti traukiama į šį lygį, nes virš jo dažnai yra short Stop Loss ir breakout pirkimo pavedimai.
-- Taškinė plonesnė mint linija: įprastas lokalus BSL pivot lygis.
-- Storesnė, ryškesnė mint linija: stiprus BSL - equal high arba pivot su padidėjusia apimtimi.
-- Mint brūkšninė linija žemesniame TF: patvirtinto H4 High projekcija. Ji rodoma 1H, 15M ir kituose TF, esančiuose žemiau pasirinkto HTF.
+This document is the canonical reference for `Last Candle Volume Info_AI.pine`.
+It consolidates the former graphic legend and the former indicator rules document.
 
-2. RAUSVAI RAUDONOS / ROŽINĖS LINIJOS - SSL
-- Reikšmė: Sell-Side Liquidity (SSL), likvidumas žemiau ankstesnių swing low / pivot low.
-- Kaina gali būti traukiama į šį lygį, nes po juo dažnai yra long Stop Loss pavedimai.
-- Taškinė plonesnė rožinė linija: įprastas lokalus SSL pivot lygis.
-- Storesnė, ryškesnė rožinė linija: stiprus SSL - equal low arba pivot su padidėjusia apimtimi.
-- Rožinė brūkšninė linija žemesniame TF: patvirtinto H4 Low projekcija.
+All Buy, Sell, Total, Delta, and Open Interest values are estimates derived from
+chart and lower-timeframe candle data. They are not exchange bid/ask data. USDT
+values are estimated volume multiplied by the chart close.
 
-3. ORANŽINĖS LINIJOS IR PUSIAU SKAIDRI ORANŽINĖ JUOSTA - H4 STATISTINIS KORIDORIUS
-- Virš H4 High esanti oranžinė linija: istorinis tikėtinas sweep nuokrypis virš H4 High.
-- Žemiau H4 Low esanti oranžinė linija: istorinis tikėtinas sweep nuokrypis žemiau H4 Low.
-- Skaidrus oranžinis plotas tarp H4 lygio ir oranžinės ribos: statistinė H4 sweep / galimo apsisukimo zona.
-- Tai nėra automatinis įėjimo signalas. Zona padeda vertinti, ar kaina jau pasiekė istoriškai reikšmingą likvidumo paėmimo gylį.
+1. LIQUIDITY MAP
+----------------
 
-4. GELTONA LINJA SU "BULL TARGET", "BEAR TARGET" ARBA "BEAR TARGET: OB"
-- Reikšmė: aktyvus forecast target - dabartinis indikatoriaus kainos tikslas.
-- BULL TARGET: po SSL sweep indikatorius ieško aktyvaus BSL virš kainos.
-- BEAR TARGET: po BSL sweep indikatorius ieško aktyvaus SSL žemiau kainos.
-- BEAR TARGET: OB: po Bear BOS arba Bear CHoCH tikslas yra stipriausio aktyvaus Bullish Order Block viršus žemiau kainos.
-- Geltona linija juda į dešinę kartu su naujomis žvakėmis. Etiketė dešinėje aiškiai nurodo jos tipą.
-- Kai target pasiekiamas, jis tampa pilkas ir brūkšninis. Kai target atšaukiamas, pakeičiamas ar baigiasi jo laikas, geltona linija ištrinama.
+- Confirmed pivot highs create Buy-Side Liquidity (BSL) levels. Confirmed pivot
+  lows create Sell-Side Liquidity (SSL) levels.
+- Nearby same-side pivots within `tolerancePercent` are merged as EQH/EQL by
+  increasing touches rather than creating duplicate levels.
+- Pivot strength is prioritized as EQH/EQL, then high-volume pivots, then normal
+  pivots. High volume is determined from the pivot-bar USDT volume versus the
+  configured volume SMA and multiplier.
+- Active BSL levels are mint/teal and active SSL levels are crimson/pink. They
+  extend right. Stronger levels are thicker and more opaque.
+- A level is mitigated by the selected `Wick Sweep` or `Close Breach` rule.
+  Mitigated levels become gray dashed history when `keepMitigated` is enabled;
+  otherwise their line is deleted.
+- Stored liquidity zones are capped by `maxZones`; pruning removes the oldest
+  zone and its line.
 
-5. PILKOS BRŪKŠNINĖS LINIJOS
-- Reikšmė: jau paliestas / mitigated likvidumo lygis arba jau pasiektas target.
-- Tai istorinis kontekstas, nebeaktyvus ateities traukos taškas.
-- Target atveju pilka brūkšninė linija rodo, kur forecast tikslas buvo sėkmingai pasiektas.
+2. H4 LEVELS AND STATISTICAL CORRIDORS
+--------------------------------------
 
-6. ŽALIOS PUSIAU SKAIDRIOS DĖŽĖS - BULLISH ORDER BLOCK
-- Reikšmė: institucinė pirkėjų / paklausos zona, sukurta iš patvirtinto pivot low.
-- Dėžės viršus yra svarbiausia reakcijos riba; kaina gali ją testuoti kaip palaikymą.
-- Dešinėje esanti tamsiai žalia etiketė "Bull OB" rodo sukauptą įvertintą BUY volume USDT verte ir Delta procentą.
-- Pilkėjanti dėžė reiškia, kad Bullish OB buvo invaliduotas.
+- Locked H4 pivot high and low are the central H4 boundaries. On lower
+  timeframes their optional projections are mint/pink dashed lines.
+- The orange line above H4 High is the expected historical sweep deviation
+  (`h4UpperCorridor`). The orange line below H4 Low is the corresponding lower
+  deviation (`h4LowerCorridor`).
+- The semi-transparent orange areas between H4 High/Low and these boundaries are
+  statistical sweep corridors, not automatic entries.
+- The top-right H4 panel shows distance from H4 High / Low, reversal probability,
+  HTF trend and session context, plus recent CVD divergence and RVOL.
+- HTF trend is based on the configured higher-timeframe EMA and is context only:
+  `AUKŠTYN` for up, `ŽEMYN` for down, and `DIAPAZONAS` for range.
+- RVOL is `barVolumeUsdt / SMA(barVolumeUsdt, whaleLength)`. It is green at
+  1.5x or higher and gray below 1.0x.
 
-7. VIOLETINĖS / PURPURINĖS PUSIAU SKAIDRIOS DĖŽĖS - BEARISH ORDER BLOCK
-- Reikšmė: institucinė pardavėjų / pasiūlos zona, sukurta iš patvirtinto pivot high.
-- Dėžės apačia ir viršus sudaro pasipriešinimo sritį; kaina gali ją testuoti iš apačios.
-- Dešinėje esanti tamsiai raudona etiketė "Bear OB" rodo sukauptą įvertintą SELL volume USDT verte ir Delta procentą.
-- Pilkėjanti dėžė reiškia, kad Bearish OB buvo invaliduotas.
+3. TARGETS, INVALIDATION, AND REVERSALS
+---------------------------------------
 
-8. "BEAR BOS" IR "BEAR CHoCH" ETIKETĖS
-- Bear BOS: kaina pramušė ankstesnį struktūrinį low - bearish struktūros tęsimas.
-- Bear CHoCH: kaina pramušė minor low - ankstyvas lokalaus charakterio pasikeitimas į bearish pusę.
-- Šie signalai gali sukurti "BEAR TARGET: OB" į žemiau esantį Bullish OB.
-- Jei Bear BOS / Bear CHoCH žvakėje estimated Buy volume yra daugiau nei 1.5 karto didesnis už estimated Sell volume, etiketės pradžioje rodoma "⚠️". Tai Bull Absorption Anomaly - galimas institucinės paklausos / bearish fakeout perspėjimas.
-- Tuo pačiu metu po tikslia Bear BOS / Bear CHoCH etiketės žvake rodomas mažas ryškiai žalias kvadratas "Bear Break Trap (Bull Abs)".
+- An SSL sweep creates a Bull target at the best active BSL above price. A BSL
+  sweep creates a Bear target at the best active SSL below price.
+- Target selection uses zone priority first and distance second. It does not
+  require BOS, CHoCH, or MSB.
+- Only one yellow forecast target line can be active. A reached target becomes
+  gray dashed history. A target cancelled, superseded, or expired is deleted.
+- Bull targets are invalidated when price breaks below their origin sweep low.
+  Bear targets are invalidated when price breaks above their origin sweep high.
+  The originating dashboard row retains `REVERSAL / TGT CANCELLED`.
+- An invalidated Bull target immediately scans for an SSL below price and flips
+  to a Bear target; an invalidated Bear target performs the inverse scan.
+- Target distance controls apply before rendering. Filtered targets show
+  `TGT DISTANT` in the Signal / Bias column and do not draw a line.
+- Targets are constrained to the latest 20-bar Fibonacci range:
+  - Bear targets cannot be below `swingHigh - swingRange * 0.618`.
+  - Bull targets cannot be above `swingLow + swingRange * 0.618`.
+- After the Fibonacci cap, an invalid directional Bear target is placed at
+  `low - ATR(14) * 0.5`; an invalid Bull target is placed at
+  `high + ATR(14) * 0.5`. This runs before the distance filter.
+- On Bear BOS or Bear CHoCH, the indicator may instead target the strongest
+  active Bullish Order Block below price, selected by power, touches, then
+  distance. The target is labelled `BEAR TARGET: OB`.
+- A superseded origin row remains `SUPERCEDED -> BEARISH MOMENTUM` or
+  `SUPERCEDED -> BULLISH MOMENTUM`; later bars do not recompute it.
 
-9. "LTF BULL CHoCH" IR "LTF BEAR CHoCH"
-- LTF BULL CHoCH: po SSL sweep aktyvaus grafiko laiko intervale kaina pramušė minor high. Tai ankstyvas bullish entry kontekstas prieš galimą didesnio TF reversal.
-- LTF BEAR CHoCH: po BSL sweep aktyvaus grafiko laiko intervale kaina pramušė minor low. Tai ankstyvas bearish entry kontekstas.
-- Patvirtinimo langą valdo "Internal CHoCH confirmation window (bars)" nustatymas.
-- Jei bullish break žvakėje estimated Sell volume yra daugiau nei 1.5 karto didesnis už estimated Buy volume, etiketės pradžioje rodoma "⚡" (Bear Absorption Anomaly). Jei bearish break žvakėje Buy volume daugiau nei 1.5 karto didesnis už Sell volume, rodoma "⚠️" (Bull Absorption Anomaly).
-- Bullish break Bear Absorption Anomaly taip pat pažymima mažu ryškiai raudonu kvadratu virš tikslios bullish CHoCH etiketės žvakės.
+4. ORDER BLOCKS AND WHALE SIGNALS
+---------------------------------
 
-10. GELTONAS APSKRITIMAS VIRŠ ŽVAKĖS - "VOL CLIMAX ABS"
-- Geltonas apskritimas rodo galimą bullish volume absorption / exhaustion ties H4 viršutiniu koridoriumi.
-- Jis rodomas, kai kaina pasiekia H4 High / upper corridor, yra institutional volume spike, Delta teigiamas, bet mažesnis nei ankstesnės žvakės Delta.
-- Institutional volume spike skaičiuojamas USDT volume verte: baro volume × close, palyginta su USDT Volume SMA × "Institutional volume spike multiplier".
-- Tai perspėjimas apie silpnėjantį pirkimo spaudimą ties pasipriešinimu, ne savarankiškas sell signalas.
+- Confirmed pivot lows form the active Bullish Order Block stack (green);
+  confirmed pivot highs form the active Bearish Order Block stack (violet).
+  Invalidated blocks gray out and stop extending.
+- Bullish block invalidation requires a close at/below its bottom and either:
+  - `deltaPercent < -25` with `relativeVolume > 1.5`; or
+  - three-bar cumulative Delta below -40%.
+- Bearish block invalidation is the symmetrical close at/above top condition with
+  `deltaPercent > 25` and RVOL above 1.5, or three-bar cumulative Delta above
+  40%.
+- A WHALE BUY requires overlap with an active Bullish Order Block, positive
+  Delta, above-average total volume, high estimated Buy volume, and no active
+  bearish reversal. A non-positive-Delta test shows `BULL OB TEST / AWAITING
+  DELTA`.
+- A WHALE SELL applies the symmetrical Bearish Order Block, negative-Delta,
+  above-average volume, and high estimated Sell-volume requirements.
+- While price remains below an active Bearish Order Block above it, only the live
+  C1 dashboard row can be locked to `SELL-SIDE BIAS / BEAR OB CAP`. Historical
+  C2-C10 rows are never rewritten.
+- A confirmed Whale Buy below an uncleared Bearish Order Block is capped at
+  `WHALE BUY -> TGT: BEAR OB [price]`.
+- A fresh Whale Buy against an active Bear target temporarily displays
+  `WHALE BUY`; following recovery bars show `WHALE BUY | ACCUMULATION` until a
+  confirmed bearish setup. The inverse Whale Sell / Bull target behavior shows
+  `WHALE SELL | DISTRIBUTION`. These live overrides do not delete a target line
+  or rewrite history.
 
-10A. MID-RANGE CONTEXT - SIGNAL / BIAS STULPELYJE IR ŽYMENYS ANT ŽVAKIŲ
-- Modulis prideda kontekstą prie esamo SIGNAL / BIAS teksto ir braižo mažus pusiau skaidrius žymenis ant žvakių.
-- Modulis valdomas nustatymu "Show mid-range volume and CVD context".
-- Jis suveikia tik kai USDT apimtis viršija 1.25x USDT Volume SMA, o visa žvakė yra griežtai tarp H4 High / Low ir jų statistinių koridorių ribų.
-- Teigiama Delta virš +20% rodo "MID BULL (+...%)", neigiama Delta žemiau -20% rodo "MID BEAR (-...%)".
-- Jei dabartinis high žemesnis nei prieš 3 žvakes, bet CVD aukštesnis, rodomas bearish CVD absorption; jei dabartinis low aukštesnis nei prieš 3 žvakes, bet CVD žemesnis, rodomas bullish CVD absorption. SIGNAL / BIAS tekstui pridedama "| CVD ABSORP".
-- Esami sweep, Whale, Order Block ir H4 signalai neperrašomi: mid-range kontekstas prie jų tik prijungiamas.
-- MID BULL žymimas mažu žaliu apskritimu po žvake, MID BEAR - mažu raudonu apskritimu virš žvakės. CVD ABSORP žymimas mažu oranžiniu trikampiu: bullish po žvake, bearish virš žvakės.
+5. VOLUME, DELTA, CVD, AND OI
+-----------------------------
 
-10B. BTC SMT DIVERGENCIJA - SANTYKINIS ALTCOIN STIPRUMAS / SILPNUMAS
-- Modulis valdomas "BTC Correlation Settings" grupės nustatymais: "Show BTC SMT divergence", "BTC reference asset" (numatyta `BINANCE:BTCUSDT`), "SMT lookback bars" (1-10, numatyta 3) ir "Show BTC SMT chart markers".
-- BTC close, high ir low gaunami tame pačiame kaip grafiko laiko intervale su `request.security()`, `gaps_off` ir `lookahead_off`, todėl istoriniams signalams nenaudojami ateities duomenys.
-- Bearish SMT / ALT WEAK: BTC close arba high yra aukštesnis nei prieš lookback barų, o altcoin close arba high yra žemesnis. SIGNAL / BIAS tekstui pridedama `⚠️ ALT WEAK (BTC RISING)`.
-- Bullish SMT / ALT STRONG: BTC close arba low yra žemesnis nei prieš lookback barų, o altcoin close arba low yra aukštesnis. SIGNAL / BIAS tekstui pridedama `🚀 ALT STRONG (BTC FALLING)`.
-- SMT kontekstas rodomas tik kai yra pakankamai BTC ir grafiko istorijos. Jis prijungiamas prie esamo pranešimo su `|` ir jo neperrašo.
-- Kai grafiko `syminfo.basecurrency` yra `BTC` arba `syminfo.tickerid` sutampa su pasirinktu BTC reference asset, abu SMT signalai ir dashboard SMT kontekstas yra priverstinai išjungti. Tai apima BTC spot, perpetual ir futures grafikus bei neleidžia atsirasti klaidingiems savęs palyginimo signalams ir žymenims.
-- Įjungus "Show BTC SMT chart markers", bearish SMT žymimas maža balta rodykle žemyn tiesiai virš žvakės high, bullish SMT - maža balta rodykle aukštyn tiesiai po žvakės low. Žymenys yra visiškai nepermatomi ir neturi istorinio poslinkio (`offset=0`).
+- `totalVolumeUsdt` is traded volume times close. `buyVolumeUsdt` and
+  `sellVolumeUsdt` are estimated directional USDT volume.
+- `deltaVol` is estimated Buy volume minus Sell volume.
+- `deltaPercent` is `(buyVolume - sellVolume) / (buyVolume + sellVolume) * 100`.
+- Closed lower-timeframe candles are classified by candle direction. Pending
+  live-bar volume is classified from incoming price movement. When intrabar data
+  is unavailable, the indicator uses the parent candle's close position in its
+  range. This estimate is never exchange bid/ask data.
+- CVD is cumulative estimated Delta. Its slope relative to price is used for
+  divergence, not its absolute value.
+- At confirmed pivots, higher price high with lower CVD high is Bear CVD
+  divergence; lower price low with higher CVD low is Bull CVD divergence.
+  Chart triangles and the matching `BULL DIV` / `BEAR DIV` dashboard tag are
+  plotted at the pivot bar.
+- OI is significant when `abs(oiDeltaUsdt)` exceeds the configured percentage of
+  traded USDT volume. Positive OI with neutral Delta marks accumulation; falling
+  OI with strongly positive Delta marks a Short Squeeze; falling OI with strongly
+  negative Delta marks a Long Squeeze.
 
-11. PROCENTŲ ETIKETĖS ANT GRAFIKO
-- Turkio procentas po kaina: bullish reversal tikimybė po SSL sweep, kai apimtis ir Delta palaiko kilimą.
-- Oranžinis procentas virš kainos: bearish reversal tikimybė po BSL sweep, kai apimtis ir Delta palaiko kritimą.
-- Tikimybė sujungia istorinių sweep rezultatų bazę, santykinę apimtį, Delta stiprumą ir H4 koridoriaus confluence.
-- Etiketės formatas: "39% WEAK" arba "39% HIGH VOL", antroje eilutėje "Buy: $9.38M" bullish signalui arba "Sell: $9.38M" bearish signalui.
-- "Buy" ir "Sell" naudoja tuos pačius estimated buyVolume / sellVolume USDT skaičiavimus kaip Candle Volume Dashboard gyva C1 eilutė ir tą patį K/M/B sutrumpinimą.
-- Jei tikimybė mažesnė nei 50% ir USDT volume žemiau "High-vol threshold" (numatyta 10M USDT), rodoma "WEAK". Bullish WEAK yra oranžinis, bearish WEAK - pilkas.
-- Jei tikimybė mažesnė nei 50%, bet volume pasiekia arba viršija threshold, rodoma "HIGH VOL". Bullish HIGH VOL yra mėlynas, bearish HIGH VOL - purpurinis: tai didelės apimties anomalijos / galimos institucinės absorbcijos perspėjimas.
-- Jei tikimybė yra bent 50%, rodoma "STRONG" ir išlaikoma įprasta kryptinė spalva.
+6. REVERSAL QUALIFYING SETUPS
+-----------------------------
 
-12. H4 LENTELĖ VIRŠUJE DEŠINĖJE
-- "Atstumas nuo H4 High": atstumas procentais iki paskutinio H4 High.
-- "Atstumas nuo H4 Low": atstumas procentais iki paskutinio H4 Low.
-- "Apsisukimo tikimybė": paskutinio reversal signalo tikimybė ir jo kryptis, arba live reikšmė, jei signalo dar nebuvo.
-- "Trendas (HTF)": aukštesnio TF (numatyta 4H) EMA trendo kryptis - AUKŠTYN (žalias), ŽEMYN (raudonas) arba DIAPAZONAS (pilkas). Reversal prieš šią kryptį yra prieš trendą.
-- "CVD divergencija": BULL DIV (žalias) arba BEAR DIV (raudonas), kai per paskutinius kelis barus (numatyta 5) buvo užfiksuota CVD divergencija; kitaip "-".
-- "RVOL (x vidurkis)": dabartinės žvakės USDT apimtis padalinta iš USDT apimties vidurkio; žalias nuo 1.5x (stipri apimtis), pilkas žemiau 1.0x (plona).
+Bullish sweep reversal:
+- An SSL sweep occurred on the current or one of the preceding three bars.
+- Current USDT volume exceeds 1.5 times the whale-volume average.
+- Estimated `deltaVol` is positive.
 
-13. CANDLE VOLUME DASHBOARD APAČIOJE DEŠINĖJE
-- BUY (USDT) / SELL (USDT): uždarytų žvakių 1 min. intrabar apimtis klasifikuojama pagal kryptį (close > open = BUY, close < open = SELL, doji = 50/50) ir konvertuojama į USDT (estimated volume × close). Gyvoje žvakėje jau uždaryti 1 min. barai išlaiko šią klasifikaciją, o dar neklasifikuota nauja apimtis kaupiama pagal kiekvieno naujo tick kainos kryptį, todėl BUY ir SELL reikšmės tarp 1 min. barų uždarymų tik didėja. Jei 1 min. duomenų nėra, uždarytoms žvakėms naudojamas ankstesnis skaičiavimas pagal pagrindinės žvakės close vietą range viduje. Tai nėra biržos bid/ask duomenys.
-- TOTAL (USDT): bendra žvakės apimtis USDT verte (volume × close).
-- DELTA: BUY ir SELL įvertintos apimties skirtumas procentais.
-- CMF: Chaikin Money Flow reikšmė.
-- OI DELTA: konkrečios žvakės Open Interest pokytis USDT verte ir visas OI skliausteliuose, pvz. "+147.43K ($2.45B)".
-- SIGNAL / BIAS: aktyvus sweep, target, CHoCH, Whale, Order Block test, institutional volume, CVD divergencija (BULL DIV / BEAR DIV), Mid-Range Context, BTC SMT arba trend bias pranešimas.
-- Mid-Range ir BTC SMT kontekstai neperrašo pirminio pranešimo. Kai jie sutampa su esamu signalu, tekstas prijungiamas su `|`, pavyzdžiui: `WHALE SELL | MID BEAR (-34.00%) | CVD ABSORP | ⚠️ ALT WEAK (BTC RISING)`. Jei pirminio pranešimo nėra, rodomas vien konteksto pranešimas.
+Bearish sweep reversal:
+- A BSL sweep occurred on the current or one of the preceding three bars.
+- Current USDT volume exceeds 1.5 times the whale-volume average.
+- Estimated `deltaVol` is negative.
 
-14. MAŽI TRIKAMPIAI - CVD DIVERGENCIJA
-- Žalias trikampis (▲) po žvake ties pivot low: bullish CVD divergencija - kaina padarė žemesnį low, o CVD (kaupiamoji Delta) padarė aukštesnį low. Pardavėjai silpsta.
-- Raudonas trikampis (▼) virš žvakės ties pivot high: bearish CVD divergencija - kaina padarė aukštesnį high, o CVD padarė žemesnį high. Pirkėjai silpsta.
-- Divergencija prideda papildomą svorį apsisukimo tikimybei ir yra pažymima SIGNAL stulpelyje kaip "| BULL DIV" arba "| BEAR DIV".
-- Divergenciją valdo "Detect CVD divergence at pivots" ir "CVD divergence active window (bars)" nustatymai.
+Bullish exhaustion reversal, available on 4H and higher:
+- Price overlaps an active Bullish Order Block, or an SSL sweep occurred within
+  three bars.
+- The lower wick is at least 55% of the range, the candle closes green, total
+  USDT volume is below 85% of its 20-bar SMA, and Delta is positive.
 
-TRUMPAS SPALVŲ ŽEMĖLAPIS
-- Mint / turkis: BSL, bullish kontekstas, teigiamas Delta.
-- Rožinė / raudona: SSL, bearish kontekstas, neigiamas Delta.
-- Oranžinė: H4 statistinis sweep / reversal koridorius ir bearish probability etiketė.
-- Mėlyna / purpurinė: mažos tikimybės reversal signalas su HIGH VOL virš nustatyto volume threshold.
-- Geltona: aktyvus forecast target.
-- Pilka brūkšninė: istorinis, jau paliestas arba pasiektas lygis.
-- Žalia dėžė: Bullish Order Block palaikymo zona.
-- Violetinė dėžė: Bearish Order Block pasipriešinimo zona.
-- Žalias trikampis po žvake: bullish CVD divergencija. Raudonas trikampis virš žvakės: bearish CVD divergencija.
-- Pusiau skaidrus žalias / raudonas apskritimas: atitinkamai MID BULL / MID BEAR in-range kontekstas. Pusiau skaidrus oranžinis trikampis: 3 žvakių CVD absorption kontekstas.
-- Balta rodyklė aukštyn po žvakės low: bullish BTC SMT / ALT STRONG. Balta rodyklė žemyn virš žvakės high: bearish BTC SMT / ALT WEAK.
+Bearish exhaustion reversal, available on 4H and higher:
+- Price overlaps an active Bearish Order Block, or a BSL sweep occurred within
+  three bars.
+- The upper wick is at least 55% of the range, the candle closes red, total
+  USDT volume is below 85% of its 20-bar SMA, and Delta is negative.
 
-15. OI ŽYMENYS ANT ŽVAKIŲ
-- Žydras rombas po žvake: Institutional Accumulation. OI didėja, Delta yra neutralus, o OI pokytis viršija reikšmingo OI dydį.
-- Fuksinis "SQ" trikampis po žvake: Short Squeeze. OI mažėja, o Delta viršija bullish Delta threshold.
-- Oranžinis "LQ" trikampis virš žvakės: Long Squeeze. OI mažėja, o Delta yra žemiau bearish Delta threshold.
-- Po Accumulation ir SQ, o virš LQ žymens rodoma konkretaus baro OI pokyčio USDT vertė, pvz. "+$3.2B" arba "-$150M".
-- Reikšmingas OI pokytis nėra fiksuotas milijardų slenkstis: |OI Delta USDT| turi viršyti "Significant OI (% of traded USDT volume)" nustatymą (numatyta 15% baro volume × close).
+Order-Block touch reversal:
+- A Bullish touch requires active Bullish OB overlap, a green close above the
+  prior close, lower wick at least 45% of range, close in the upper 40% of range,
+  and positive Delta.
+- A Bearish touch requires active Bearish OB overlap, a red close below the
+  prior close, upper wick at least 45% of range, close in the lower 40% of
+  range, and negative Delta.
+- An OB touch has precedence over exhaustion on the same candle. A block can
+  emit one touch label until price exits the block.
+
+Labels are drawn only when a qualifying setup starts on a confirmed bar. Bullish
+labels require a close in the upper 40% of range and above the prior close;
+Bearish labels require a red close in the lower 40% and below the prior close.
+
+7. REVERSAL PROBABILITY AND AI CONFLUENCE
+-----------------------------------------
+
+The final Reversal Probability Score is strictly bounded from 0% through 99%.
+
+Base score:
+- Sweep and exhaustion setups begin with the completed sweep-target success rate:
+  `successfulSweepReversals / totalLiquiditySweeps * 100`.
+- Order-Block touch setups begin at 40%.
+
+Standard weights:
+- Volume: +15 above 2.0x the 20-bar total-volume SMA; otherwise +10 above 1.5x.
+  Exhaustion setups receive no Volume weight.
+- Delta: +15 when `abs(deltaVol) / volume > 0.15`; otherwise +10 when above
+  0.08.
+- CVD divergence: +15 when a confirmed direction-matching CVD divergence is
+  within `cvdDivergenceWindow` (five bars by default).
+
+AI confluence weights:
+- SMT context: +15 for a Bullish qualifying sweep or OB-touch setup when
+  `isAltStrong` is true (`ALT STRONG (BTC FALLING)`), or a Bearish qualifying
+  sweep or OB-touch setup when `isAltWeak` is true (`ALT WEAK (BTC RISING)`).
+  An otherwise qualifying setup facing the opposite SMT state receives -15.
+- Absorption trap: +15 for a Bullish sweep reversal when `isBearBreakTrap` is
+  true on this or the prior bar. The same +15 applies to a Bearish sweep
+  reversal when `isBullAbs` is true on this or the prior bar.
+- Dynamic H4 corridor depth: this replaces the legacy fixed +15 corridor boost
+  and never applies to an OB-touch setup:
+  - Bullish: `lowerBandWidth = h4Low - h4LowerCorridor`.
+  - Bearish: `upperBandWidth = h4UpperCorridor - h4High`.
+  - Shallow penetration: +10 when close lies in the first half of the relevant
+    orange band beyond H4 Low / High.
+  - Deep penetration: +20 when close reaches or exceeds the outer half of the
+    relevant orange band.
+- Vol Climax Abs resistance wall: +10 for a Bearish OB-touch reversal or BSL
+  sweep when the setup high is within 0.05% of the most recent
+  `volClimaxAbsCeiling`, provided that ceiling was established within 10 bars.
+- TEMA trend confluence: +15 for a Bullish label when the smooth chart-timeframe
+  TEMA state is lime, or a Bearish label when it is fuchsia.
+- Live orange-TEMA consolidation bias feeds the directional score: a Bullish
+  setup with `chopLean == 1`, or a Bearish setup with `chopLean == -1`, receives
+  +10. A setup against the live lean receives -15. The final score remains
+  clamped from 0% through 99%.
+- Extreme institutional pressure is independent of the TEMA state: USDT volume
+  above 1.8x its 20-bar SMA with Delta below -12% is heavy selling; Delta above
+  +12% is heavy buying. Either contributes +30 and imposes a 75% minimum final
+  score, capped at 99%. The top panel reports the matching momentum direction.
+- A live micro-variation term, `deltaPercent * 0.15 * RVOL`, is included on
+  every bar (using 1.0 when RVOL is unavailable). This prevents static
+  historical-ratio scores during consolidation while preserving the 0-99 clamp
+  and the extreme-pressure floor.
+
+The final aggregate is:
+`base + volume + Delta + SMT + TEMA trend + trap + corridor depth + absorption
+ceiling + CVD divergence + live chop lean + extreme momentum + micro volume
+Delta shift`, clamped to the 0-99 range.
+
+8. HIGH-VOLUME CLASSIFICATION AND REVERSAL LABELS
+-------------------------------------------------
+
+- The dynamic High-vol threshold is recalculated every bar:
+  `SMA(totalVolumeUsdt, 50) * 1.5`.
+- `STRONG`: probability is at least 50%.
+- `HIGH VOL`: probability is below 50% and total USDT volume meets or exceeds
+  the High-vol threshold.
+- `WEAK`: probability is below 50% and total USDT volume is below the threshold.
+- Bullish labels are teal for STRONG, orange for WEAK, and blue for HIGH VOL.
+  Bearish labels are orange for STRONG, gray for WEAK, and purple for HIGH VOL.
+- Label text uses the same compact K/M/B formatter as the dashboard:
+  `55% STRONG` plus `Buy: $...` for Bullish or `Sell: $...` for Bearish.
+- Orange TEMA consolidation does not suppress reversal-probability labels or
+  qualifying setups; heavy buying and selling pressure is explicitly eligible
+  for the matching directional score. Order-Block-touch label latches remain
+  paused during orange consolidation so a suppressed touch does not consume
+  its future label opportunity. A fuchsia TEMA reduces the Bearish sweep volume
+  gate from 1.5x to 1.125x (a 25% reduction).
+- TEMA color never suppresses BOS, CHoCH, or primary sweep structures. A heavy
+  selling Bear BOS/CHoCH receives a fallback structural label when the normal
+  continuation path cannot draw one.
+- The historical score stream is pure white and uses normal-size text. It
+  shows the rounded change in reversal probability from the immediately prior
+  bar: positive changes carry a `+` prefix, negative changes retain `-`, and
+  unchanged scores display `0`.
+- If the aggregate score is at least 85%, the H4 panel displays
+  `🔥 MAKSIMALI AI TIKIMYBĖ` with the calculated percentage instead of
+  `DIDELĖ TIKIMYBĖ`. Existing direction-relative colors are retained.
+
+9. ABSORPTION, SMT, AND MID-RANGE CONTEXT
+-----------------------------------------
+
+VOL CLIMAX ABS:
+- An institutional volume spike occurs at an SSL or BSL sweep with positive
+  Delta.
+- The prior candle is green and current `deltaPercent` is below the prior
+  candle's `deltaPercent`.
+- Price is at the H4 upper-corridor confluence.
+- The yellow `VOL CLIMAX ABS` circle is plotted, an orange ceiling line is
+  created, and the latest ceiling price and origin bar are retained for the
+  resistance-wall score.
+
+Absorption-trap markers:
+- A Bear BOS or Bear CHoCH with estimated Buy volume more than 1.5x estimated
+  Sell volume is a Bull Absorption Anomaly. Its label is prefixed with `⚠️`
+  and a green `Bear Break Trap` square is plotted below the bar.
+- A Bullish internal CHoCH with estimated Sell volume more than 1.5x estimated
+  Buy volume is a Bear Absorption Anomaly. Its label is prefixed with `⚡`
+  and a red `Bull Break Trap` square is plotted above the bar.
+
+BTC SMT:
+- Bearish SMT / ALT WEAK requires BTC rising over the configured lookback while
+  the chart asset is failing. It appends `ALT WEAK (BTC RISING)`.
+- Bullish SMT / ALT STRONG requires BTC falling while the chart asset holds. It
+  appends `ALT STRONG (BTC FALLING)`.
+- SMT is suppressed on BTC charts and when the chart symbol is the configured
+  BTC reference asset, preventing self-comparison. SMT is intentionally
+  dashboard-and-score only; it does not draw candle arrows or overlays.
+
+Mid-range:
+- Mid-range volume requires USDT volume above 1.25x its 20-bar SMA and a candle
+  strictly inside the locked H4 range and statistical corridors.
+- Delta above +20% adds `MID BULL`; Delta below -20% adds `MID BEAR`.
+- Three-bar hidden price/CVD divergence adds `CVD ABSORP`.
+- Mid-range and SMT messages append to existing Signal / Bias text with `|`;
+  they do not replace a primary sweep, target, Whale, or Order Block message.
+
+10. DASHBOARD AND GRAPHIC LEGEND
+--------------------------------
+
+The bottom-right dashboard has 10 fixed recent-candle rows and these columns:
+`Bar`, `Buy`, `Sell`, `Total`, `Delta`, `CMF`, `OI Delta`, and `Signal / Bias`.
+
+- Target-hit rows are blue. Cancelled-target origins are orange. Superseded target
+  origins are dark charcoal.
+- Signal / Bias owns sweep, target, target-hit, target-distance, failure,
+  reversal, Whale, CVD-divergence, SMT, and context messages.
+- The dashboard is rendered only for the live last bar or last confirmed history.
+
+Chart legend:
+- Mint / teal line: active BSL.
+- Crimson / pink line: active SSL.
+- Orange lines and transparent fill: H4 statistical corridors.
+- Yellow line: active Bull, Bear, or Bear OB forecast target.
+- Gray dashed line: mitigated liquidity or reached target history.
+- Green box: Bullish Order Block. Violet box: Bearish Order Block. Gray box:
+  invalidated Order Block.
+- Green triangle below a pivot: Bull CVD divergence. Red triangle above a pivot:
+  Bear CVD divergence. Each includes the pivot candle's estimated directional
+  volume label.
+- Yellow circle above a bar: VOL CLIMAX ABS.
+- Cyan diamond: institutional accumulation. Fuchsia `SQ` triangle: Short
+  Squeeze. Orange `LQ` triangle: Long Squeeze.
+- 3-Color CM Institutional TEMA: lime for a rising trend, fuchsia for a
+  falling trend, and orange during ATR-defined consolidation.
+
+11. INSTITUTIONAL TEMA BIAS LINE
+--------------------------------
+
+- `CM TEMA Length` defaults to 20, `CM Color Smoothing Shift` defaults to 2,
+  and `Consolidation ATR Sensitivity Multiplier` defaults to 0.20.
+- The line uses the CM-style TEMA formula
+  `3 * (EMA1 - EMA2) + EMA3` directly on the chart timeframe, so it remains
+  smooth and aligned with the price candles.
+- Orange is the default state and remains active whenever the absolute TEMA
+  slope over the smoothing shift is below ATR(14) multiplied by the
+  consolidation multiplier. Outside consolidation, it is lime when price is
+  above the rising smooth TEMA and fuchsia when price is below the falling
+  smooth TEMA.
+- During orange consolidation, an internal lean uses responsive USDT volume and
+  Delta thresholds: volume above 1.10x its 20-bar USDT SMA plus Delta above
+  +12% is `ACCUMULATING BULL`; Delta below -12% is `DISTRIBUTING BEAR`;
+  otherwise it is `PURE NEUTRAL`. The dashboard appends the applicable
+  `BIAS: 🟡 CONSOLIDATION (...)` text in its Signal / Bias cell.
+- There is no historical bias-error rendering. A plain score-change stream
+  prints the rounded difference between each reversal probability and its
+  immediately previous value at the TEMA coordinate for every confirmed bar.
+  Positive shifts use `+`, negative shifts use `-`, and unchanged values use
+  `0`; all text is normal-size white. Labels have no text wrapper, border, or
+  background; the newest 250 score labels are retained to respect TradingView's
+  chart-label limit and preserve other indicator labels.
+
+12. KNN CONFIDENCE SCORE (AI INDICATOR ONLY)
+--------------------------------------------
+
+- The KNN classifier evaluates new Bullish and Bearish sweep-reversal events,
+  not exhaustion-only or OB-touch-only setups.
+- Features are clamped Delta percent, current RVOL, and normalized close position
+  inside the H4 corridor.
+- A confirmed event stores its feature set, direction, entry close, and a pending
+  outcome. After the configurable outcome horizon (five bars by default), a Bull
+  sample succeeds above its entry close and a Bear sample succeeds below it.
+- The memory retains at most 200 complete samples. Prediction uses Euclidean
+  distance over the five nearest resolved samples.
+- `aiConfidenceScore` is available only once five resolved feature-complete
+  samples exist. When available, reversal labels append `AI: NN%`.
+- KNN confidence is informational: it does not alter Reversal Probability,
+  classification, targets, colors, or alerts.
+
+13. RELEVANT DEFAULTS
+---------------------
+
+- `volumeLength`: 20; `highVolumeMultiplier`: 1.0.
+- `institutionalVolumeSmaLength`: 20; `institutionalVolumeMultiplier`: 1.8.
+- `whaleLength`: 20; `whaleMultiplier`: 2.0.
+- `negativeDeltaThreshold`: -12%; `momentumDeltaThreshold`: 15%;
+  `momentumCmfThreshold`: 0.05.
+- `oiSignificancePercent`: 15%; `neutralDeltaBound`: 15%;
+  `bullishDeltaThreshold`: 15%; `bearishDeltaThreshold`: -12%.
+
+`absorptionSmaLength` and `absorptionVolumeMultiplier` remain exposed settings
+but do not currently feed a separate signal, filter, or trigger.
