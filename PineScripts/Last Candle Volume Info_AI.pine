@@ -1708,16 +1708,66 @@ plotshape(isMidRangeAbsBear, title="Mid Bear Shape", style=shape.circle, locatio
 plotshape(hiddenBullDiv, title="Hidden Bull CVD Shape", style=shape.triangledown, location=location.belowbar, color=color.new(color.orange, 20), size=size.small)
 plotshape(hiddenBearDiv, title="Hidden Bear CVD Shape", style=shape.triangleup, location=location.abovebar, color=color.new(color.orange, 20), size=size.small)
 
-// Render each confirmed bar's score change instead of its absolute probability.
-float aiScoreDelta = reversalProbabilityFixed - reversalProbabilityFixed[1]
-int roundedDelta = math.round(aiScoreDelta)
-string deltaTextStr = ""
-if roundedDelta > 0
-    deltaTextStr := "+" + str.tostring(roundedDelta)
-else if roundedDelta < 0
-    deltaTextStr := str.tostring(roundedDelta)
-else
-    deltaTextStr := "0"
+float prevBarScore = nz(aiScore[1], aiScore)
+// RETROSPECTIVE 1-BAR PATTERN RECOGNITION CONTEXT
+// Bar [1] is the pattern candle; bar [0] is the confirmation candle.
+bool isBullBreakoutTriggered = false
+bool isBearTrapTriggered = false
+
+bool setupBullOnBar1 = close[1] > open[1] and aiScore[1] > 55.0 and math.round(aiScore[1] - prevBarScore[1]) > 10
+if setupBullOnBar1 and close > low[1] and math.round(aiScore - prevBarScore) >= -10
+    isBullBreakoutTriggered := true
+
+bool setupBearOnBar1 = close[1] < open[1] and math.round(aiScore[1] - prevBarScore[1]) <= -25
+if setupBearOnBar1 and close < high[1] and math.round(aiScore - prevBarScore) <= 10
+    isBearTrapTriggered := true
+
+// The display score is synchronized with the same live conditions that drive dashboard BUY/SELL states.
+float rawScoreChange = aiScore - prevBarScore
+int finalScoreChange = math.round(rawScoreChange)
+float upperWickSize = high - math.max(open, close)
+float lowerWickSize = math.min(open, close) - low
+float realBodySize = math.abs(close - open)
+if close > open and upperWickSize > realBodySize * 1.2 and finalScoreChange > 0
+    finalScoreChange := -1 * math.abs(finalScoreChange)
+if close < open and lowerWickSize > realBodySize * 1.5
+    if finalScoreChange < 0
+        finalScoreChange := math.abs(finalScoreChange)
+else if close < open and lowerWickSize <= realBodySize * 1.5
+    if finalScoreChange > 0
+        finalScoreChange := -1 * math.abs(finalScoreChange)
+if close > open and upperWickSize <= realBodySize * 1.5 and finalScoreChange < 0
+    finalScoreChange := math.abs(finalScoreChange)
+
+bool activeWhaleBuySignal = insideBullishOb and isWhaleBuyVolume and deltaPercent > 0 and totalVolumeUsdt > totalVolumeSma
+bool activeWhaleSellSignal = insideBearishOb and isWhaleSellVolume and deltaPercent < 0 and totalVolumeUsdt > totalVolumeSma
+bool activeAccumulationSignal = freshWhaleBuyAgainstBearTarget or whaleBuyRecoveryActive or (isTemaOrange and chopLean == 1)
+bool activeDistributionSignal = freshWhaleSellAgainstBullTarget or whaleSellRecoveryActive or (isTemaOrange and chopLean == -1)
+
+// Signal direction is the final display-layer arbiter; it never alters the pattern predicates above.
+if activeWhaleBuySignal or activeAccumulationSignal or isBullBreakoutTriggered or setupBullOnBar1
+    if finalScoreChange < 0
+        finalScoreChange := 15
+    else if finalScoreChange == 0
+        finalScoreChange := 10
+if activeWhaleSellSignal or activeDistributionSignal or isBearTrapTriggered or setupBearOnBar1
+    if finalScoreChange > 0
+        finalScoreChange := -1 * math.abs(finalScoreChange)
+    else if finalScoreChange == 0
+        finalScoreChange := -10
+string finalPrefix = finalScoreChange > 0 ? "+" : ""
+string deltaTextStr = finalPrefix + str.tostring(finalScoreChange)
+
+plotshape(isBullBreakoutTriggered and barstate.isconfirmed ? low[1] - reversalLabelAtr * 0.4 : na, title="Bull AI icon", style=shape.triangleup, location=location.absolute, color=color.teal, size=size.small, offset=-1, force_overlay=true)
+plotshape(isBearTrapTriggered and barstate.isconfirmed ? high[1] + reversalLabelAtr * 0.4 : na, title="Bear AI icon", style=shape.triangledown, location=location.absolute, color=color.fuchsia, size=size.small, offset=-1, force_overlay=true)
+
+var label livePatternLabel = na
+if barstate.islast
+    label.delete(livePatternLabel)
+    if setupBullOnBar1 and close > low[1]
+        livePatternLabel := label.new(x=bar_index - 1, y=low[1] - reversalLabelAtr * 0.4, text="[AI 🟢]", color=color.new(color.white, 100), textcolor=color.teal, style=label.style_label_up)
+    else if setupBearOnBar1 and close < high[1]
+        livePatternLabel := label.new(x=bar_index - 1, y=high[1] + reversalLabelAtr * 0.4, text="[AI 🔴]", color=color.new(color.white, 100), textcolor=color.orange, style=label.style_label_down)
 
 var array<label> historicalAiScoreLabels = array.new<label>()
 int maxHistoricalAiScoreLabels = 250
