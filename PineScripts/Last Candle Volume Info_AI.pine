@@ -838,10 +838,11 @@ if not na(pivotLow)
     addBullishOrderBlock(bullishObTop, bullishObBottom, bullishObPower, buyVolumeUsdt[rightBars], totalVolumeUsdt[rightBars], deltaVolUsdt[rightBars])
 bool recentBearishCvdDivergence = ta.barssince(bearishCvdDivergence) <= cvdDivergenceWindow
 bool recentBullishCvdDivergence = ta.barssince(bullishCvdDivergence) <= cvdDivergenceWindow
+bool recentBullishCvdDivergenceForAi = ta.barssince(bullishCvdDivergence) <= 5
 
 bool isPotentialReversal = ta.barssince(sslSwept) <= 3 and barVolumeUsdt > whaleVolumeAverage * 1.5 and deltaVol > 0
-float bearishReversalVolumeThreshold = whaleVolumeAverage * (isTemaFuchsia ? 1.125 : 1.5)
-bool isPotentialBearishReversal = ta.barssince(bslSwept) <= 3 and barVolumeUsdt > bearishReversalVolumeThreshold and deltaVol < 0
+float bearishReversalVolumeThreshold = totalVolumeSma * (isTemaFuchsia ? 1.125 : 1.5)
+bool isPotentialBearishReversal = ta.barssince(bslSwept) <= 3 and totalVolumeUsdt > bearishReversalVolumeThreshold and deltaVol < 0
 
 bool bullObInvalidatedThisBar = false
 bool insideBullishOb = false
@@ -957,12 +958,15 @@ float reversalVolumeWeight = reversalAlignmentActive and not exhaustionReversalS
 float reversalDeltaWeight = reversalAlignmentActive ? deltaRatio > 0.15 ? 15.0 : deltaRatio > 0.08 ? 10.0 : 0.0 : 0.0
 bool bullishQualifyingSetup = isPotentialReversal or bullishObTouchReversalSetup or heavyBuyingPressure
 bool bearishQualifyingSetup = isPotentialBearishReversal or bearishObTouchReversalSetup or heavySellingPressure
+bool heavyVolumeBullishCvdConfluence = bullishQualifyingSetup and recentBullishCvdDivergenceForAi and buyVolumeUsdt > 1000000
+bool bearishVolClimaxReversalSetup = isPotentialBearishReversal or bearishObTouchReversalSetup
 float reversalSmtWeight = 0.0
 if bullishQualifyingSetup
     reversalSmtWeight := isAltStrong ? 15.0 : isAltWeak ? -15.0 : 0.0
 else if bearishQualifyingSetup
     reversalSmtWeight := isAltWeak ? 15.0 : isAltStrong ? -15.0 : 0.0
 float reversalTemaTrendWeight = bullishProbabilityLabel and isTemaLime ? 15.0 : bearishProbabilityLabel and isTemaFuchsia ? 15.0 : 0.0
+float reversalOpposingTemaPenalty = bullishQualifyingSetup and isTemaFuchsia and not heavyVolumeBullishCvdConfluence ? -15.0 : 0.0
 bool recentBearBreakTrap = isBearBreakTrap or isBearBreakTrap[1]
 bool recentBullAbs = isBullAbs or isBullAbs[1]
 float reversalTrapWeight = isPotentialReversal and recentBearBreakTrap ? 15.0 : isPotentialBearishReversal and recentBullAbs ? 15.0 : 0.0
@@ -975,8 +979,8 @@ bool bearishDeepCorridorPenetration = not obTouchReversalSetup and bearishQualif
 float reversalH4Weight = bullishDeepCorridorPenetration or bearishDeepCorridorPenetration ? 20.0 : bullishShallowCorridorPenetration or bearishShallowCorridorPenetration ? 10.0 : 0.0
 bool recentVolClimaxAbsCeiling = not na(volClimaxAbsCeiling) and not na(volClimaxAbsCeilingBar) and bar_index - volClimaxAbsCeilingBar <= 10
 bool testsVolClimaxAbsCeiling = recentVolClimaxAbsCeiling and math.abs(high - volClimaxAbsCeiling) / volClimaxAbsCeiling <= 0.05 / 100.0
-float reversalVolClimaxWeight = ((bearishObTouchReversalSetup and not isTemaOrange) or bslSwept) and testsVolClimaxAbsCeiling ? 10.0 : 0.0
-float reversalDivergenceWeight = (bullishProbabilityLabel and recentBullishCvdDivergence) or (bearishProbabilityLabel and recentBearishCvdDivergence) ? 15.0 : 0.0
+float reversalVolClimaxWeight = bearishVolClimaxReversalSetup and testsVolClimaxAbsCeiling ? 15.0 : 0.0
+float reversalDivergenceWeight = heavyVolumeBullishCvdConfluence ? 25.0 : ((bullishProbabilityLabel and recentBullishCvdDivergence) or (bearishProbabilityLabel and recentBearishCvdDivergence)) ? 15.0 : 0.0
 float reversalChopLeanWeight = 0.0
 if isTemaOrange
     if bullishProbabilityLabel
@@ -985,10 +989,11 @@ if isTemaOrange
         reversalChopLeanWeight := chopLean == -1 ? 10.0 : chopLean == 1 ? -15.0 : 0.0
 float reversalMomentumWeight = heavySellingPressure or heavyBuyingPressure ? 30.0 : 0.0
 float microVolumeDeltaShift = (deltaPercent * 0.15) * (na(relativeVolume) ? 1.0 : relativeVolume)
-float dynamicAggregatedProbability = reversalBaselineProbability + reversalVolumeWeight + reversalDeltaWeight + reversalSmtWeight + reversalTemaTrendWeight + reversalTrapWeight + reversalH4Weight + reversalVolClimaxWeight + reversalDivergenceWeight + reversalChopLeanWeight + reversalMomentumWeight + microVolumeDeltaShift
-float reversalProbabilityFixed = math.min(99.0, math.max(0.0, dynamicAggregatedProbability))
+float dynamicAggregatedProbability = reversalBaselineProbability + reversalVolumeWeight + reversalDeltaWeight + reversalSmtWeight + reversalTemaTrendWeight + reversalOpposingTemaPenalty + reversalTrapWeight + reversalH4Weight + reversalVolClimaxWeight + reversalDivergenceWeight + reversalChopLeanWeight + reversalMomentumWeight + microVolumeDeltaShift
+float aiScore = math.min(99.0, math.max(0.0, dynamicAggregatedProbability))
 if heavySellingPressure or heavyBuyingPressure
-    reversalProbabilityFixed := math.max(reversalProbabilityFixed, 75.0)
+    aiScore := math.min(99.0, math.max(0.0, math.max(aiScore, 75.0)))
+float reversalProbabilityFixed = aiScore
 float reversalProbability = reversalProbabilityFixed
 string reversalProbabilityText = str.tostring(math.round(reversalProbabilityFixed)) + "%"
 bool weakReversalSignal = reversalProbabilityFixed < 50.0
@@ -1731,3 +1736,15 @@ if barstate.isconfirmed
     array.push(historicalAiScoreLabels, historicalAiScoreLabel)
     if array.size(historicalAiScoreLabels) > maxHistoricalAiScoreLabels
         label.delete(array.shift(historicalAiScoreLabels))
+
+// Display the live probability delta from the preceding candle.
+var label liveReversalProbabilityLabel = na
+if barstate.islast
+    bool liveReversalProbabilityLabelExists = not na(liveReversalProbabilityLabel) and array.includes(label.all, liveReversalProbabilityLabel)
+    string liveReversalProbabilityText = deltaTextStr
+    if not liveReversalProbabilityLabelExists
+        liveReversalProbabilityLabel := label.new(bar_index, smoothTema, liveReversalProbabilityText, xloc=xloc.bar_index, yloc=yloc.price, style=label.style_none, color=color.new(color.black, 100), textcolor=color.white, size=size.normal, force_overlay=true)
+    else
+        label.set_x(liveReversalProbabilityLabel, bar_index)
+        label.set_y(liveReversalProbabilityLabel, smoothTema)
+        label.set_text(liveReversalProbabilityLabel, liveReversalProbabilityText)
