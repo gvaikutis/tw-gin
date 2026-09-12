@@ -111,6 +111,19 @@ type BearishOrderBlock
     box boxRef
     label labelRef
 
+f_evaluateCandleAnatomy() =>
+    float cRange = high - low
+    float cBody = math.abs(close - open)
+    float upperWick = high - math.max(open, close)
+    float lowerWick = math.min(open, close) - low
+    float bodyPct = cRange > 0 ? cBody / cRange * 100.0 : 0.0
+    float upperWickPct = cRange > 0 ? upperWick / cRange * 100.0 : 0.0
+    float lowerWickPct = cRange > 0 ? lowerWick / cRange * 100.0 : 0.0
+    float closePosPct = cRange > 0 ? (close - low) / cRange * 100.0 : 0.0
+    bool isGreen = close >= open
+    bool isRed = close < open
+    [cRange, cBody, upperWick, lowerWick, bodyPct, upperWickPct, lowerWickPct, closePosPct, isGreen, isRed]
+
 var array<LiquidityZone> zones = array.new<LiquidityZone>()
 var float activeTarget = na
 var int targetDirection = 0
@@ -184,8 +197,6 @@ var array<int> historical_outcomes = array.new_int()
 var array<int> historical_directions = array.new_int()
 var array<float> historical_entry_prices = array.new_float()
 var array<int> historical_origin_bars = array.new_int()
-var array<float> knnNearestDistances = array.new_float()
-var array<int> knnNearestOutcomes = array.new_int()
 var int bars_since_exh = 0
 var float exh_high = na
 var float exh_low = na
@@ -429,9 +440,9 @@ else
 
 // Classify each available one-minute intrabar by its candle direction. This remains
 // directional-volume analysis, not exchange-provided bid/ask order-flow data.
-float candleRange = high - low
+[candleRange, candleBody, upperWick, lowerWick, bodyPct, upperWickPct, lowerWickPct, closePosPct, isGreen, isRed] = f_evaluateCandleAnatomy()
 float barVolumeUsdt = volume * close
-float legacyBuyRatio = candleRange > 0 ? (close - low) / candleRange : 0.5
+float legacyBuyRatio = candleRange > 0 ? closePosPct / 100.0 : 0.5
 float legacyBuyVolume = volume * legacyBuyRatio
 float legacySellVolume = volume - legacyBuyVolume
 bool supportsOneMinuteIntrabars = not na(chartTimeframeSeconds) and chartTimeframeSeconds > 60
@@ -643,7 +654,7 @@ bool aggressiveLongSqueeze = isOiSignificant and oiDeltaUsdt < 0 and deltaPercen
 float cumulativeDeltaPercent3 = math.sum(deltaPercent, 3)
 bool recentBuyClimax = (isHighVolume[1] and close[1] > open[1] and deltaPercent[1] > 0) or (isHighVolume[2] and close[2] > open[2] and deltaPercent[2] > 0) or (isHighVolume[3] and close[3] > open[3] and deltaPercent[3] > 0)
 bool noDemandBearishReversal = close < open and close < close[1] and isLowVolume and not na(relativeVolume) and relativeVolume < 0.8 and recentBuyClimax
-float closeLocationValue = candleRange > 0 ? ((close - low) - (high - close)) / candleRange : 0.0
+float closeLocationValue = candleRange > 0 ? closePosPct * 0.02 - 1.0 : 0.0
 float moneyFlowVolume = closeLocationValue * nz(volume, 0)
 float cmfVolumeSum = math.sum(moneyFlowVolume, cmfLength)
 float cmfTotalVolume = math.sum(nz(volume, 0), cmfLength)
@@ -783,6 +794,32 @@ if sslSwept
 
 bool recentSslSweep = ta.barssince(sslSwept) <= internalStructureWindow
 bool recentBslSweep = ta.barssince(bslSwept) <= internalStructureWindow
+bool bslSweepOccurredWithin3Bars = ta.barssince(bslSwept) <= 3
+bool sslSweepOccurredWithin3Bars = ta.barssince(sslSwept) <= 3
+float squeezeVolumeSma50 = ta.sma(totalVolumeUsdt, 50)
+bool isShortSqueezeCompleted = bslSweepOccurredWithin3Bars and not na(squeezeVolumeSma50) and totalVolumeUsdt >= squeezeVolumeSma50 * 1.15 and upperWickPct >= 35.0 and closePosPct <= 55.0 and (deltaVol < 0 or deltaPercent < 5.0)
+bool isLongSqueezeCompleted = sslSweepOccurredWithin3Bars and not na(squeezeVolumeSma50) and totalVolumeUsdt >= squeezeVolumeSma50 * 1.15 and lowerWickPct >= 35.0 and closePosPct >= 45.0 and (deltaVol > 0 or deltaPercent > -5.0)
+var line activeShortSqueezeLine = na
+var line activeLongSqueezeLine = na
+if barstate.isconfirmed and isShortSqueezeCompleted
+    line.delete(activeShortSqueezeLine)
+    activeShortSqueezeLine := line.new(bar_index, high, bar_index + 30, high, xloc=xloc.bar_index, extend=extend.right, color=#ff007f, width=4, style=line.style_solid)
+    label.new(bar_index, high, "⚠️ SHORT SQUEEZE", yloc=yloc.abovebar, style=label.style_label_down, color=color.new(#ff007f, 10), textcolor=color.white, size=size.normal)
+if barstate.isconfirmed and isLongSqueezeCompleted
+    line.delete(activeLongSqueezeLine)
+    activeLongSqueezeLine := line.new(bar_index, low, bar_index + 30, low, xloc=xloc.bar_index, extend=extend.right, color=#00f5ff, width=4, style=line.style_solid)
+    label.new(bar_index, low, "⚡ LONG SQUEEZE", yloc=yloc.belowbar, style=label.style_label_up, color=color.new(#00f5ff, 10), textcolor=color.white, size=size.normal)
+plotshape(isShortSqueezeCompleted and barstate.isconfirmed, title="Short Squeeze Square", style=shape.square, location=location.abovebar, color=#ff007f, size=size.normal)
+plotshape(isLongSqueezeCompleted and barstate.isconfirmed, title="Long Squeeze Square", style=shape.square, location=location.belowbar, color=#00f5ff, size=size.normal)
+bgcolor(isShortSqueezeCompleted ? color.new(#ff007f, 85) : na, title="Short Squeeze Column")
+bgcolor(isLongSqueezeCompleted ? color.new(#00f5ff, 85) : na, title="Long Squeeze Column")
+float bearLevelPrice = not na(activeShortSqueezeLine) ? line.get_y1(activeShortSqueezeLine) : na
+float bullLevelPrice = not na(activeLongSqueezeLine) ? line.get_y1(activeLongSqueezeLine) : na
+float distanceToBearPct = not na(bearLevelPrice) and close != 0 ? (bearLevelPrice - close) / close * 100.0 : na
+float distanceToBullPct = not na(bullLevelPrice) and close != 0 ? (close - bullLevelPrice) / close * 100.0 : na
+string bearDistStr = not na(distanceToBearPct) ? "BEAR: +" + str.tostring(distanceToBearPct, "#.##") + "%" : "BEAR: NONE"
+string bullDistStr = not na(distanceToBullPct) ? "BULL: -" + str.tostring(distanceToBullPct, "#.##") + "%" : "BULL: NONE"
+string compactSqueezeMsg = isShortSqueezeCompleted ? "SSQ" : isLongSqueezeCompleted ? "LSQ" : ""
 bool bullishInstitutionalSweepEvent = showInstitutionalVolumeMarkers and institutionalVolumeSpike and sslSwept and deltaPercent > 0
 bool recentBullishInstitutionalSweep = ta.barssince(bullishInstitutionalSweepEvent) <= internalStructureWindow
 bool internalBullishChoch = useInternalStructureSignals and bullishChoch and (recentSslSweep or recentBullishInstitutionalSweep)
@@ -920,18 +957,16 @@ bool lowerCorridorTouched = not na(lowerCorridorTolerance) and low <= lower_corr
 bool corridorTouchAlert = barstate.isconfirmed and (upperCorridorTouched or lowerCorridorTouched)
 float reversalLabelAtr = ta.atr(14)
 bool exhaustionTimeframe = (timeframe.isminutes and timeframe.multiplier >= 240) or timeframe.isdaily or timeframe.isweekly or timeframe.ismonthly
-float lowerWick = math.min(open, close) - low
-float upperWick = high - math.max(open, close)
-bool longLowerWick = candleRange > 0 and lowerWick / candleRange >= 0.55
-bool longUpperWick = candleRange > 0 and upperWick / candleRange >= 0.55
+bool longLowerWick = lowerWickPct >= 55.0
+bool longUpperWick = upperWickPct >= 55.0
 bool exhaustionVolumeDrop = totalVolumeUsdt < totalVolumeSma * 0.85
 bool exhaustionCooldownComplete = na(lastExhaustionLabelBar) or bar_index - lastExhaustionLabelBar > 5
 bool recentSslSweepForExhaustion = ta.barssince(sslSwept) <= 3
 bool recentBslSweepForExhaustion = ta.barssince(bslSwept) <= 3
-bool visibleLowerObTouchWick = candleRange > 0 and lowerWick / candleRange >= 0.45
-bool visibleUpperObTouchWick = candleRange > 0 and upperWick / candleRange >= 0.45
-bool bullishCloseNearRangeTop = candleRange > 0 and close > low + candleRange * 0.60
-bool bearishCloseNearRangeBottom = candleRange > 0 and close < low + candleRange * 0.40
+bool visibleLowerObTouchWick = lowerWickPct >= 45.0
+bool visibleUpperObTouchWick = upperWickPct >= 45.0
+bool bullishCloseNearRangeTop = candleRange > 0 and closePosPct > 60.0
+bool bearishCloseNearRangeBottom = candleRange > 0 and closePosPct < 40.0
 bool bullishObTouchCandidate = false
 bool bearishObTouchCandidate = false
 int currentBullishBlockCount = array.size(bullishObStack)
@@ -946,11 +981,11 @@ if currentBearishBlockCount > 0
         BearishOrderBlock block = array.get(bearishObStack, blockIndex)
         bool blockTouched = block.active and high >= block.bottom and low <= block.top
         bearishObTouchCandidate := bearishObTouchCandidate or (blockTouched and not block.reversalLabelPrinted)
-bool bullishObTouchReversalSetup = bullishObTouchCandidate and close > open and close > close[1] and bullishCloseNearRangeTop and visibleLowerObTouchWick and deltaVol > 0
-bool bearishObTouchReversalSetup = bearishObTouchCandidate and close < open and close < close[1] and bearishCloseNearRangeBottom and visibleUpperObTouchWick and deltaVol < 0
+bool bullishObTouchReversalSetup = bullishObTouchCandidate and isGreen and close > close[1] and bullishCloseNearRangeTop and visibleLowerObTouchWick and deltaVol > 0
+bool bearishObTouchReversalSetup = bearishObTouchCandidate and isRed and close < close[1] and bearishCloseNearRangeBottom and visibleUpperObTouchWick and deltaVol < 0
 bool obTouchReversalSetup = bullishObTouchReversalSetup or bearishObTouchReversalSetup
-bool bullishExhaustionSetup = exhaustionTimeframe and exhaustionCooldownComplete and (insideBullishOb or recentSslSweepForExhaustion) and longLowerWick and close > open and exhaustionVolumeDrop and deltaVol > 0
-bool bearishExhaustionSetup = exhaustionTimeframe and exhaustionCooldownComplete and (insideBearishOb or recentBslSweepForExhaustion) and longUpperWick and close < open and exhaustionVolumeDrop and deltaVol < 0
+bool bullishExhaustionSetup = exhaustionTimeframe and exhaustionCooldownComplete and (insideBullishOb or recentSslSweepForExhaustion) and longLowerWick and isGreen and exhaustionVolumeDrop and deltaVol > 0
+bool bearishExhaustionSetup = exhaustionTimeframe and exhaustionCooldownComplete and (insideBearishOb or recentBslSweepForExhaustion) and longUpperWick and isRed and exhaustionVolumeDrop and deltaVol < 0
 bool bullishProbabilityLabel = isPotentialReversal or (bullishExhaustionSetup or bullishObTouchReversalSetup) or heavyBuyingPressure
 bool bearishProbabilityLabel = isPotentialBearishReversal or (bearishExhaustionSetup or bearishObTouchReversalSetup) or heavySellingPressure
 bool exhaustionReversalSetup = (bullishExhaustionSetup or bearishExhaustionSetup) and not obTouchReversalSetup
@@ -1005,16 +1040,10 @@ if isTemaOrange
     else if bearishProbabilityLabel
         reversalChopLeanWeight := chopLean == -1 ? 10.0 : chopLean == 1 ? -15.0 : 0.0
 float reversalMomentumWeight = heavySellingPressure or heavyBuyingPressure ? 30.0 : 0.0
-f_getSynchronizedScoreChange(bool isWhaleBuy, bool isWhaleSell, float baseScore, float volumeMultiplier) =>
-    float candleRange = high - low
-    float candleBody = math.abs(close - open)
-    float upperWick = high - math.max(close, open)
-    float lowerWick = math.min(close, open) - low
-    bool isGreen = close > open
-    bool isRed = close < open
+f_getSynchronizedScoreChange(bool isWhaleBuy, bool isWhaleSell, float baseScore, float volumeMultiplier, float candleRange, float candleBody, float upperWick, float lowerWick, float closePosPct, bool isGreen, bool isRed) =>
     float finalScore = baseScore
     bool touchesDistributionWall = (not na(h4UpperCorridor) and high >= h4UpperCorridor) or insideBearishOb
-    bool whaleDistributionWall = touchesDistributionWall and deltaPercent > 12.0 and candleRange > 0 and close <= low + candleRange * 0.5 and upperWick > candleBody
+    bool whaleDistributionWall = touchesDistributionWall and deltaPercent > 12.0 and candleRange > 0 and closePosPct <= 50.0 and upperWick > candleBody
     string ruleCode = "R"
     // Rejected aggressive buying at overhead institutional resistance takes priority over Whale Buy.
     if whaleDistributionWall
@@ -1045,7 +1074,7 @@ f_getSynchronizedScoreChange(bool isWhaleBuy, bool isWhaleSell, float baseScore,
 
 float preMicroProbability = reversalBaselineProbability + reversalVolumeWeight + reversalDeltaWeight + reversalSmtWeight + reversalTemaTrendWeight + reversalOpposingTemaPenalty + reversalTrapWeight + reversalH4Weight + reversalVolClimaxWeight + reversalDivergenceWeight + reversalChopLeanWeight + reversalMomentumWeight
 float preMicroScoreChange = preMicroProbability - nz(preMicroProbability[1], preMicroProbability)
-[alignedScoreChange, activeRuleCode] = f_getSynchronizedScoreChange(is_wheel_buy, is_wheel_sell, preMicroScoreChange, vMult)
+[alignedScoreChange, activeRuleCode] = f_getSynchronizedScoreChange(is_wheel_buy, is_wheel_sell, preMicroScoreChange, vMult, candleRange, candleBody, upperWick, lowerWick, closePosPct, isGreen, isRed)
 string volumeTierCode = rvol >= 2.0 ? "W" : rvol >= 1.5 ? "H" : rvol >= 0.85 ? "M" : "L"
 string matrixCode = activeRuleCode + volumeTierCode
 bool isWhaleMatrixPressure = matrixCode == "WW" or matrixCode == "WH"
@@ -1060,6 +1089,8 @@ if reversalAlignmentActive
     else if matrixCode == "AL" or matrixCode == "RL"
         matrixConfluenceAdjustment := -10.0
 alignedScoreChange += matrixConfluenceAdjustment
+float squeezeScoreAdjustment = isLongSqueezeCompleted ? 30.0 : isShortSqueezeCompleted ? -30.0 : 0.0
+alignedScoreChange += squeezeScoreAdjustment
 float rawMicroVolumeDeltaShift = deltaPercent * 0.15 * rvol
 float microVolumeDeltaShift = rawMicroVolumeDeltaShift
 var float aiScore = na
@@ -1092,6 +1123,44 @@ bool aiSweepReversalEvent = aiBullishSweepReversalEvent or aiBearishSweepReversa
 int aiNeighborCount = 5
 int aiMaxHistorySize = 200
 
+f_queryKnnConfidence(float feature1, float feature2, float feature3, int neighborCount) =>
+    array<float> nearestDistances = array.new_float()
+    array<int> nearestOutcomes = array.new_int()
+    int historyCount = array.size(historical_outcomes)
+    if historyCount > 0
+        for historyIndex = 0 to historyCount - 1
+            int historicalOutcome = array.get(historical_outcomes, historyIndex)
+            if not na(historicalOutcome)
+                float historicalF1 = array.get(historical_f1, historyIndex)
+                float historicalF2 = array.get(historical_f2, historyIndex)
+                float historicalF3 = array.get(historical_f3, historyIndex)
+                float f1Distance = (feature1 - historicalF1) / 100.0
+                float f2Distance = feature2 - historicalF2
+                float f3Distance = feature3 - historicalF3
+                float euclideanDistance = math.sqrt(f1Distance * f1Distance + f2Distance * f2Distance + f3Distance * f3Distance)
+                int nearestCount = array.size(nearestDistances)
+                if nearestCount < neighborCount
+                    array.push(nearestDistances, euclideanDistance)
+                    array.push(nearestOutcomes, historicalOutcome)
+                else
+                    int farthestIndex = 0
+                    float farthestDistance = array.get(nearestDistances, 0)
+                    for neighborIndex = 1 to nearestCount - 1
+                        float neighborDistance = array.get(nearestDistances, neighborIndex)
+                        if neighborDistance > farthestDistance
+                            farthestDistance := neighborDistance
+                            farthestIndex := neighborIndex
+                    if euclideanDistance < farthestDistance
+                        array.set(nearestDistances, farthestIndex, euclideanDistance)
+                        array.set(nearestOutcomes, farthestIndex, historicalOutcome)
+    float confidence = na
+    if array.size(nearestOutcomes) == neighborCount
+        int successfulNeighbors = 0
+        for neighborIndex = 0 to neighborCount - 1
+            successfulNeighbors += array.get(nearestOutcomes, neighborIndex)
+        confidence := successfulNeighbors * 100.0 / neighborCount
+    confidence
+
 // Resolve samples only after their horizon closes, preventing future leakage in predictions.
 int aiHistoryCount = array.size(historical_outcomes)
 if barstate.isconfirmed and aiHistoryCount > 0
@@ -1104,42 +1173,7 @@ if barstate.isconfirmed and aiHistoryCount > 0
             bool historicalSuccess = historicalDirection == 1 ? close > historicalEntryPrice : close < historicalEntryPrice
             array.set(historical_outcomes, historyIndex, historicalSuccess ? 1 : 0)
 
-float aiConfidenceScore = na
-if aiSweepReversalEvent and aiFeaturesAvailable
-    array.clear(knnNearestDistances)
-    array.clear(knnNearestOutcomes)
-    aiHistoryCount := array.size(historical_outcomes)
-    if aiHistoryCount > 0
-        for historyIndex = 0 to aiHistoryCount - 1
-            int historicalOutcome = array.get(historical_outcomes, historyIndex)
-            if not na(historicalOutcome)
-                float historicalF1 = array.get(historical_f1, historyIndex)
-                float historicalF2 = array.get(historical_f2, historyIndex)
-                float historicalF3 = array.get(historical_f3, historyIndex)
-                float f1Distance = (aiFeatureF1 - historicalF1) / 100.0
-                float f2Distance = aiFeatureF2 - historicalF2
-                float f3Distance = aiFeatureF3 - historicalF3
-                float euclideanDistance = math.sqrt(f1Distance * f1Distance + f2Distance * f2Distance + f3Distance * f3Distance)
-                int nearestCount = array.size(knnNearestDistances)
-                if nearestCount < aiNeighborCount
-                    array.push(knnNearestDistances, euclideanDistance)
-                    array.push(knnNearestOutcomes, historicalOutcome)
-                else
-                    int farthestIndex = 0
-                    float farthestDistance = array.get(knnNearestDistances, 0)
-                    for neighborIndex = 1 to nearestCount - 1
-                        float neighborDistance = array.get(knnNearestDistances, neighborIndex)
-                        if neighborDistance > farthestDistance
-                            farthestDistance := neighborDistance
-                            farthestIndex := neighborIndex
-                    if euclideanDistance < farthestDistance
-                        array.set(knnNearestDistances, farthestIndex, euclideanDistance)
-                        array.set(knnNearestOutcomes, farthestIndex, historicalOutcome)
-    if array.size(knnNearestOutcomes) == aiNeighborCount
-        int successfulNeighbors = 0
-        for neighborIndex = 0 to aiNeighborCount - 1
-            successfulNeighbors += array.get(knnNearestOutcomes, neighborIndex)
-        aiConfidenceScore := successfulNeighbors * 100.0 / aiNeighborCount
+float aiConfidenceScore = aiSweepReversalEvent and aiFeaturesAvailable ? f_queryKnnConfidence(aiFeatureF1, aiFeatureF2, aiFeatureF3, aiNeighborCount) : na
 
 if barstate.isconfirmed and aiSweepReversalEvent and aiFeaturesAvailable
     int aiEventDirection = aiBullishSweepReversalEvent ? 1 : -1
@@ -1159,10 +1193,32 @@ if barstate.isconfirmed and aiSweepReversalEvent and aiFeaturesAvailable
         array.shift(historical_entry_prices)
         array.shift(historical_origin_bars)
 
+float proximityThreshold = 0.30
+bool isNearBearLine = not na(distanceToBearPct) and distanceToBearPct >= 0 and distanceToBearPct <= proximityThreshold
+bool isNearBullLine = not na(distanceToBullPct) and distanceToBullPct >= 0 and distanceToBullPct <= proximityThreshold
+float preSweepVolumeSma = ta.sma(volume, 20)
+bool isVolumeSurging = not na(preSweepVolumeSma) and volume > preSweepVolumeSma * 1.25
+bool preSweepBearWarning = isNearBearLine and isVolumeSurging
+bool preSweepBullWarning = isNearBullLine and isVolumeSurging
+float knnPreSweepConfidence = (preSweepBearWarning or preSweepBullWarning) and aiFeaturesAvailable ? f_queryKnnConfidence(aiFeatureF1, aiFeatureF2, aiFeatureF3, aiNeighborCount) : na
+bool preSweepBearHighRisk = preSweepBearWarning and not na(knnPreSweepConfidence) and knnPreSweepConfidence >= 60.0
+bool preSweepBullHighRisk = preSweepBullWarning and not na(knnPreSweepConfidence) and knnPreSweepConfidence >= 60.0
+var label preSweepBearWarningLabel = na
+var label preSweepBullWarningLabel = na
+if barstate.islast
+    label.delete(preSweepBearWarningLabel)
+    label.delete(preSweepBullWarningLabel)
+    preSweepBearWarningLabel := na
+    preSweepBullWarningLabel := na
+    if preSweepBearHighRisk
+        preSweepBearWarningLabel := label.new(bar_index + 10, bearLevelPrice, "🔥 HIGH RISK: POTENTIAL SSQ NOW (" + str.tostring(knnPreSweepConfidence, "#") + "% AI)", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_left, color=color.red, textcolor=color.white, size=size.small)
+    if preSweepBullHighRisk
+        preSweepBullWarningLabel := label.new(bar_index + 10, bullLevelPrice, "🔥 HIGH RISK: POTENTIAL LSQ NOW (" + str.tostring(knnPreSweepConfidence, "#") + "% AI)", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_left, color=color.green, textcolor=color.white, size=size.small)
+
 string knnString = not na(aiConfidenceScore) ? "\nAI: " + str.tostring(math.round(aiConfidenceScore)) + "%" : ""
 string deltaTextStr = scorePrefix + str.tostring(roundedScoreChange) + "\n" + matrixCode + knnString
-bool isCandleCloseBullish = close > low + candleRange * 0.60 and close > close[1]
-bool isCandleCloseBearish = close < low + candleRange * 0.40 and close < close[1]
+bool isCandleCloseBullish = candleRange > 0 and closePosPct > 60.0 and close > close[1]
+bool isCandleCloseBearish = candleRange > 0 and closePosPct < 40.0 and close < close[1]
 bool isHighVolClassification = weakReversalSignal and highVolumeReversalSignal
 string dynamicLabelText = ""
 color finalLabelColor = color.gray
@@ -1214,7 +1270,7 @@ if barstate.isconfirmed and bearishObTouchReversalSetup
 bool wheelExecutionAlert = false
 string wheelDashboardState = "NONE"
 
-float upperWickForAbsorption = high - math.max(open, close)
+float upperWickForAbsorption = upperWick
 bool absorptionAlert = barstate.isconfirmed and isAbsorption
 
 // Mid-range context uses the established volume, delta, CVD, and locked H4 series.
@@ -1307,6 +1363,10 @@ alertcondition(bearishCvdDivergence, "Bearish CVD divergence", "Bearish CVD dive
 alertcondition(institutionalAccumulation, "Institutional Accumulation", "Institutional Accumulation Detected! Massive OI Influx under limit absorption. Potential explosive move brewing.")
 alertcondition(aggressiveShortSqueeze, "Aggressive Short Squeeze", "Short Squeeze Active! Price driving up by forced short liquidations. High momentum warning.")
 alertcondition(aggressiveLongSqueeze, "Aggressive Long Squeeze", "Long Squeeze Active! Price driving down by forced long liquidations. High downside momentum warning.")
+alertcondition(isShortSqueezeCompleted and barstate.isconfirmed, "Short Squeeze Completed", "A buy-side liquidity sweep was rejected with high volume and negative Delta. Target active sell-side liquidity.")
+alertcondition(isLongSqueezeCompleted and barstate.isconfirmed, "Long Squeeze Completed", "A sell-side liquidity sweep was rejected with high volume and positive Delta. Target active buy-side liquidity.")
+alertcondition(preSweepBearHighRisk, "Pre-sweep Short Squeeze risk", "High KNN confidence for a Short Squeeze near the active bearish squeeze level on {{ticker}}.")
+alertcondition(preSweepBullHighRisk, "Pre-sweep Long Squeeze risk", "High KNN confidence for a Long Squeeze near the active bullish squeeze level on {{ticker}}.")
 
 if bearishBos
     lastStructuralLow := na
@@ -1526,7 +1586,7 @@ if showChochLabels and internalBearishChoch and not bearishStructureLabelDrawn a
     label.new(bar_index, high, structureLabelText("LTF Bear CHoCH", buyVolumeUsdt, sellVolumeUsdt, false), yloc=yloc.abovebar, style=label.style_label_down, color=sslColor, textcolor=color.white, size=size.tiny)
 
 var table infoPanel = table.new(position.bottom_right, 8, 11, frame_color=color.new(chart.fg_color, 60), frame_width=1, border_color=color.new(chart.fg_color, 80), border_width=1)
-var table h4StatsPanel = table.new(position.top_right, 2, 5, frame_color=color.new(chart.fg_color, 60), frame_width=1, border_color=color.new(chart.fg_color, 80), border_width=1)
+var table h4StatsPanel = table.new(position.top_right, 2, 6, frame_color=color.new(chart.fg_color, 60), frame_width=1, border_color=color.new(chart.fg_color, 80), border_width=1)
 if targetActive and not na(targetLabel)
     label.set_x(targetLabel, bar_index + 10)
     label.set_y(targetLabel, activeTarget)
@@ -1569,6 +1629,8 @@ if barstate.islast or barstate.islastconfirmedhistory
     string relativeVolumeText = na(relativeVolume) ? "-" : str.tostring(relativeVolume, "#.##") + "x"
     table.cell(h4StatsPanel, 0, 4, "CVD / RVOL (x vidurkis)", text_color=chart.fg_color, text_size=size.small, bgcolor=color.new(color.black, 25))
     table.cell(h4StatsPanel, 1, 4, cvdDivergenceText + " / " + relativeVolumeText, text_color=cvdDivergenceText == "-" ? relativeVolumeColor : cvdDivergenceColor, text_size=size.small, bgcolor=color.new(color.black, 25))
+    table.cell(h4StatsPanel, 0, 5, "Squeeze distance", text_color=chart.fg_color, text_size=size.small, bgcolor=color.new(color.black, 25))
+    table.cell(h4StatsPanel, 1, 5, bearDistStr + " | " + bullDistStr, text_color=chart.fg_color, text_size=size.small, bgcolor=color.new(color.black, 25))
     table.cell(infoPanel, 0, 0, "Bar", text_color=chart.fg_color, text_size=size.tiny, bgcolor=color.new(color.black, 15), text_halign=text.align_center)
     table.cell(infoPanel, 1, 0, "BUY (USDT)", text_color=bslColor, text_size=size.tiny, bgcolor=color.new(color.black, 15), text_halign=text.align_center)
     table.cell(infoPanel, 2, 0, "SELL (USDT)", text_color=tableSellColor, text_size=size.tiny, bgcolor=color.new(color.black, 15), text_halign=text.align_center)
@@ -1612,13 +1674,14 @@ if barstate.islast or barstate.islastconfirmedhistory
         bool absorptionBuy = hasCandle and isRedCandle and candleDelta > 0 and candleCmf < 0.02 and buyRatio[candleIndex] <= 0.40 and isVolumeClimax[candleIndex]
         bool absorptionSell = hasCandle and isGreenCandle and candleDelta < 0 and candleCmf > -0.02 and buyRatio[candleIndex] >= 0.60 and isVolumeClimax[candleIndex]
         string liquiditySignal = hasCandle ? barSignal[candleIndex] : ""
+        string candleCompactSqueezeMsg = hasCandle ? compactSqueezeMsg[candleIndex] : ""
         bool candleBearObTarget = candleIndex == 0 and liquiditySignal == "BEAR TARGET: OB" and not candlePotentialReversal and not candlePotentialBearishReversal
         string candleExhStatus = hasCandle ? exhDashboardStatus[candleIndex] : ""
         string internalStructureText = candleInternalBullishChoch ? "LTF BULL CHoCH" : candleInternalBearishChoch ? "LTF BEAR CHoCH" : ""
         bool liveWhaleBuyRecovery = candleIndex == 0 and (freshWhaleBuyAgainstBearTarget or whaleBuyRecoveryActive)
         bool liveWhaleSellRecovery = candleIndex == 0 and (freshWhaleSellAgainstBullTarget or whaleSellRecoveryActive)
         string whaleBuyText = whaleBuy ? "WHALE BUY 🐋" : ""
-        string signalText = candlePotentialBearishReversal ? "🔄 BEARISH REVERSAL (Prob: " + str.tostring(candleReversalProbability, "#.##") + "%)" + (internalStructureText != "" ? " | " + internalStructureText : "") : candlePotentialReversal ? "🔄 REVERSAL ALIGNMENT (Prob: " + str.tostring(candleReversalProbability, "#.##") + "%)" + (internalStructureText != "" ? " | " + internalStructureText : "") : candleSellSideBiasLocked ? "SELL-SIDE BIAS / BEAR OB CAP" : liquiditySignal != "" ? liquiditySignal : internalStructureText != "" ? internalStructureText + " -> EARLY ENTRY" : whaleBuy ? whaleBuyText : whaleSell ? "WHALE SELL" : bullishObTestingWaiting ? "🐂 BULL OB TEST / AWAITING DELTA" : bearishObTestingWaiting ? "🐻 BEAR OB TEST / AWAITING DELTA" : candleInstitutionalVolumeSpike ? "INSTITUTIONAL VOLUME SPIKE" : absorptionBuy ? "AbBuyV" : absorptionSell ? "AbSellV" : ""
+        string signalText = candlePotentialBearishReversal ? "🔄 BEARISH REVERSAL (Prob: " + str.tostring(candleReversalProbability, "#.##") + "%)" + (internalStructureText != "" ? " | " + internalStructureText : "") : candlePotentialReversal ? "🔄 REVERSAL ALIGNMENT (Prob: " + str.tostring(candleReversalProbability, "#.##") + "%)" + (internalStructureText != "" ? " | " + internalStructureText : "") : candleSellSideBiasLocked ? "SELL-SIDE BIAS / BEAR OB CAP" : candleCompactSqueezeMsg != "" ? candleCompactSqueezeMsg : liquiditySignal != "" ? liquiditySignal : internalStructureText != "" ? internalStructureText + " -> EARLY ENTRY" : whaleBuy ? whaleBuyText : whaleSell ? "WHALE SELL" : bullishObTestingWaiting ? "🐂 BULL OB TEST / AWAITING DELTA" : bearishObTestingWaiting ? "🐻 BEAR OB TEST / AWAITING DELTA" : candleInstitutionalVolumeSpike ? "INSTITUTIONAL VOLUME SPIKE" : absorptionBuy ? "AbBuyV" : absorptionSell ? "AbSellV" : ""
         string lockedTargetSignal = ""
         int lockedTargetCount = array.size(lockedTargetBars)
         if lockedTargetCount > 0
@@ -1682,7 +1745,10 @@ if barstate.islast or barstate.islastconfirmedhistory
         bool bearishReversal = reversalSignal and (str.contains(signalText, "BEAR") or candleDelta <= -momentumDeltaThreshold)
         bool bullishSignal = str.contains(signalText, "BULLISH MOMENTUM") or str.contains(signalText, "UPSIDE BIAS") or str.contains(signalText, "BULL TARGET") or str.contains(signalText, "WHALE BUY")
         bool bearishSignal = str.contains(signalText, "BEAR TARGET") or str.contains(signalText, "CONTINUATION DOWN") or str.contains(signalText, "WHALE SELL")
-        color signalBackground = candlePotentialBearishReversal ? color.new(color.orange, 40) : candlePotentialReversal ? color.new(color.teal, 50) : isTargetHitRow ? color.new(color.blue, 20) : isTargetCancelledRow ? color.new(color.orange, 20) : isTargetSupersededRow ? color.rgb(45, 48, 52) : isObReachedRow ? color.new(bslColor, 35) : bullishObTestingWaiting ? color.new(color.teal, 65) : bearishObTestingWaiting ? color.new(color.orange, 65) : bullishReversal ? color.new(#00e676, 72) : bearishReversal ? color.new(color.red, 85) : signalText == "" ? color.new(color.black, 25) : bullishSignal ? color.new(#00e676, 72) : bearishSignal ? color.new(color.red, 85) : color.new(color.black, 25)
+        bool isShortSqueezeSignal = str.contains(signalText, "SSQ")
+        bool isLongSqueezeSignal = str.contains(signalText, "LSQ")
+        color signalBackground = candlePotentialBearishReversal ? color.new(color.orange, 40) : candlePotentialReversal ? color.new(color.teal, 50) : isTargetHitRow ? color.new(color.blue, 20) : isTargetCancelledRow ? color.new(color.orange, 20) : isTargetSupersededRow ? color.rgb(45, 48, 52) : isObReachedRow ? color.new(bslColor, 35) : isShortSqueezeSignal ? color.new(#ff007f, 65) : isLongSqueezeSignal ? color.new(#00f5ff, 65) : bullishObTestingWaiting ? color.new(color.teal, 65) : bearishObTestingWaiting ? color.new(color.orange, 65) : bullishReversal ? color.new(#00e676, 72) : bearishReversal ? color.new(color.red, 85) : signalText == "" ? color.new(color.black, 25) : bullishSignal ? color.new(#00e676, 72) : bearishSignal ? color.new(color.red, 85) : color.new(color.black, 25)
+        color signalTextColor = isShortSqueezeSignal ? #ff007f : isLongSqueezeSignal ? #00f5ff : chart.fg_color
         string buyText = hasCandle ? "$" + compactUsdt(candleBuy) : "-"
         string sellText = hasCandle ? "$" + compactUsdt(candleSell) : "-"
         string totalText = hasCandle ? "$" + compactUsdt(candleTotal) : "-"
@@ -1701,7 +1767,7 @@ if barstate.islast or barstate.islastconfirmedhistory
         table.cell(infoPanel, 4, row, deltaText, text_color=deltaColor, text_size=size.tiny, bgcolor=color.new(color.black, 25), text_halign=text.align_center)
         table.cell(infoPanel, 5, row, cmfText, text_color=cmfColor, text_size=size.tiny, bgcolor=color.new(color.black, 25), text_halign=text.align_center)
         table.cell(infoPanel, 6, row, historicalOiText, text_color=historicalOiColor, text_size=size.tiny, bgcolor=historicalOiBackground, text_halign=text.align_center)
-        table.cell(infoPanel, 7, row, signalText, text_color=chart.fg_color, text_size=size.tiny, bgcolor=signalBackground, width=30, text_halign=text.align_center)
+        table.cell(infoPanel, 7, row, signalText, text_color=signalTextColor, text_size=size.tiny, bgcolor=signalBackground, width=30, text_halign=text.align_center)
     wheelExecutionAlert := barstate.isconfirmed and wheelDashboardState != "NONE"
     if wheelExecutionAlert
         alert(syminfo.ticker + " (" + timeframe.period + ") - WHEEL " + wheelDashboardState + " CONFIRMED BY DASHBOARD at " + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)

@@ -3,7 +3,7 @@ AI LIQUIDITY MAP - CANONICAL INDICATOR REFERENCE
 Scope
 -----
 
-This document is the canonical reference for `Last Candle Volume Info_AI.pine`.
+This document is the canonical reference for `Last Candle Volume Info_AI2.pine`.
 It consolidates the former graphic legend and the former indicator rules document.
 
 All Buy, Sell, Total, Delta, and Open Interest values are estimates derived from
@@ -39,11 +39,15 @@ values are estimated volume multiplied by the chart close.
 - The semi-transparent orange areas between H4 High/Low and these boundaries are
   statistical sweep corridors, not automatic entries.
 - The top-right H4 panel shows distance from H4 High / Low, reversal probability,
-  HTF trend and session context, plus recent CVD divergence and RVOL.
+  HTF trend and session context, recent CVD divergence and RVOL, and the
+  distance to the active Bear and Bull squeeze levels.
 - HTF trend is based on the configured higher-timeframe EMA and is context only:
   `AUKŠTYN` for up, `ŽEMYN` for down, and `DIAPAZONAS` for range.
 - RVOL is `barVolumeUsdt / SMA(barVolumeUsdt, whaleLength)`. It is green at
   1.5x or higher and gray below 1.0x.
+- Squeeze distance uses the close: `BEAR: +x%` measures the active fuchsia
+  Short Squeeze line from above, while `BULL: -x%` measures the active cyan
+  Long Squeeze line from below. Missing active lines display `NONE`.
 
 3. TARGETS, INVALIDATION, AND REVERSALS
 ---------------------------------------
@@ -129,6 +133,18 @@ values are estimated volume multiplied by the chart close.
 6. REVERSAL QUALIFYING SETUPS
 -----------------------------
 
+Candle anatomy evaluation:
+- `f_evaluateCandleAnatomy()` is evaluated once per bar and supplies the
+  candle range, body, upper and lower wicks, their range-relative percentages,
+  close position (0% at low, 100% at high), and green/red direction flags.
+- A zero-range candle returns 0% for every anatomy percentage, preventing
+  division by zero. The parent-candle fallback Buy/Sell estimate retains its
+  neutral 50/50 split in that case.
+- Exhaustion and Order-Block touch checks use the shared wick and close-position
+  percentages. The AI2 score matrix receives the same anatomy values, including
+  the Whale Distribution Wall test of a lower-half close and upper wick larger
+  than the body.
+
 Bullish sweep reversal:
 - An SSL sweep occurred on the current or one of the preceding three bars.
 - Current USDT volume exceeds 1.5 times the whale-volume average.
@@ -138,6 +154,23 @@ Bearish sweep reversal:
 - A BSL sweep occurred on the current or one of the preceding three bars.
 - Current USDT volume exceeds 1.5 times the whale-volume average.
 - Estimated `deltaVol` is negative.
+
+Completed squeeze markers:
+- A Short Squeeze Completed marker requires a BSL sweep in the last three bars,
+  total USDT volume at least 1.15x its 50-bar SMA, an upper wick of at least
+  35% of range, a close in the lower 55% of range, and either negative
+  `deltaVol` or `deltaPercent` below 5%. It leaves a permanent neon-fuchsia
+  square, `SHORT SQUEEZE` label, fuchsia column glow, and a width-4 horizontal
+  line from its high extending right. Only the most recent Short Squeeze line
+  is active; a new confirmed Short Squeeze deletes the prior Short Squeeze
+  line. It contributes a -30 directional score shift.
+- A Long Squeeze Completed marker uses the symmetrical SSL sweep, high-volume,
+  35% lower-wick, upper-55%-close, and either positive `deltaVol` or
+  `deltaPercent` above -5% criteria. It leaves a permanent neon-cyan square,
+  `LONG SQUEEZE` label, cyan column glow, and a width-4 horizontal line from
+  its low extending right. Only the most recent Long Squeeze line is active; a
+  new confirmed Long Squeeze deletes the prior Long Squeeze line. It contributes
+  a +30 directional score shift.
 
 Bullish exhaustion reversal, available on 4H and higher:
 - Price overlaps an active Bullish Order Block, or an SSL sweep occurred within
@@ -318,6 +351,10 @@ The bottom-right dashboard has 10 fixed recent-candle rows and these columns:
   origins are dark charcoal.
 - Signal / Bias owns sweep, target, target-hit, target-distance, failure,
   reversal, Whale, CVD-divergence, SMT, and context messages.
+- Completed squeeze signals use compact dashboard codes: `SSQ` for a Short
+  Squeeze and `LSQ` for a Long Squeeze. The code is colored fuchsia or cyan,
+  respectively, and yields to higher-priority reversal, target-outcome, and
+  live Bearish Order Block-cap messages.
 - The dashboard is rendered only for the live last bar or last confirmed history.
 
 Chart legend:
@@ -332,8 +369,9 @@ Chart legend:
   Bear CVD divergence. Each includes the pivot candle's estimated directional
   volume label.
 - Yellow circle above a bar: VOL CLIMAX ABS.
-- Cyan diamond: institutional accumulation. Fuchsia `SQ` triangle: Short
-  Squeeze. Orange `LQ` triangle: Long Squeeze.
+- Cyan diamond: institutional accumulation. Fuchsia `SQ` triangle: aggressive
+  Short Squeeze. Orange `LQ` triangle: aggressive Long Squeeze. Fuchsia and
+  cyan squares: completed Short and Long squeezes, respectively.
 - 3-Color CM Institutional TEMA: lime for a rising trend, fuchsia for a
   falling trend, and orange during ATR-defined consolidation.
 
@@ -416,7 +454,12 @@ Chart legend:
   `AI: NN%` after its code, while primary reversal labels use it as the
   middle line between probability/strength and directional volume.
 - KNN confidence is informational: it does not alter Reversal Probability,
-  classification, targets, colors, or alerts.
+  classification or targets.
+- When close is within 0.30% of an active squeeze line and raw volume is at
+  least 1.25x its 20-bar SMA, the same resolved-sample KNN lookup runs as a
+  proactive pre-sweep query. A confidence of at least 60% shows one live
+  `HIGH RISK` SSQ/LSQ label at the appropriate active line and enables its
+  matching alert; no synthetic fallback confidence is used.
 
 13. RELEVANT DEFAULTS
 ---------------------
