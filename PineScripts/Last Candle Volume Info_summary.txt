@@ -69,7 +69,9 @@ values are estimated volume multiplied by the chart close.
   `high + ATR(14) * 0.5`. This runs before the distance filter.
 - On Bear BOS or Bear CHoCH, the indicator may instead target the strongest
   active Bullish Order Block below price, selected by power, touches, then
-  distance. The target is labelled `BEAR TARGET: OB`.
+  distance. The selected block's top is used directly, without a later
+  Fibonacci cap or fallback adjustment, and both the target label and live C1
+  dashboard cell read exactly `BEAR TARGET: OB`.
 - A superseded origin row remains `SUPERCEDED -> BEARISH MOMENTUM` or
   `SUPERCEDED -> BULLISH MOMENTUM`; later bars do not recompute it.
 
@@ -79,10 +81,10 @@ values are estimated volume multiplied by the chart close.
 - Confirmed pivot lows form the active Bullish Order Block stack (green);
   confirmed pivot highs form the active Bearish Order Block stack (violet).
   Invalidated blocks gray out and stop extending.
-- Bullish block invalidation requires a close at/below its bottom and either:
+- Bullish block invalidation requires a confirmed close below its bottom and either:
   - `deltaPercent < -25` with `relativeVolume > 1.5`; or
   - three-bar cumulative Delta below -40%.
-- Bearish block invalidation is the symmetrical close at/above top condition with
+- Bearish block invalidation is the symmetrical confirmed close above top condition with
   `deltaPercent > 25` and RVOL above 1.5, or three-bar cumulative Delta above
   40%.
 - A WHALE BUY requires overlap with an active Bullish Order Block, positive
@@ -157,11 +159,16 @@ Order-Block touch reversal:
   prior close, upper wick at least 45% of range, close in the lower 40% of
   range, and negative Delta.
 - An OB touch has precedence over exhaustion on the same candle. A block can
-  emit one touch label until price exits the block.
+  emit one touch label until price completely exits the block. Its latch is
+  reset only after a non-orange full exit; orange TEMA is context and does not
+  suppress a qualifying OB-touch label.
 
 Labels are drawn only when a qualifying setup starts on a confirmed bar. Bullish
 labels require a close in the upper 40% of range and above the prior close;
 Bearish labels require a red close in the lower 40% and below the prior close.
+- Orange TEMA consolidation remains available as AI-score context but does not
+  suppress qualifying OB-touch or exhaustion setups, their probability labels,
+  or their label latches.
 
 7. REVERSAL PROBABILITY AND AI CONFLUENCE
 -----------------------------------------
@@ -171,6 +178,7 @@ The final Reversal Probability Score is strictly bounded from 0% through 99%.
 Base score:
 - Sweep and exhaustion setups begin with the completed sweep-target success rate:
   `successfulSweepReversals / totalLiquiditySweeps * 100`.
+  Before any tracked sweep result exists, they use a 45% baseline.
 - Order-Block touch setups begin at 40%.
 
 Standard weights:
@@ -180,6 +188,9 @@ Standard weights:
   0.08.
 - CVD divergence: +15 when a confirmed direction-matching CVD divergence is
   within `cvdDivergenceWindow` (five bars by default).
+  A Bullish qualifying setup with `BULL DIV` in that window and estimated Buy
+  volume above $1,000,000 receives +25 instead. This heavy-buy confluence
+  suppresses an opposing TEMA penalty.
 
 AI confluence weights:
 - SMT context: +15 for a Bullish qualifying sweep or OB-touch setup when
@@ -197,7 +208,7 @@ AI confluence weights:
     orange band beyond H4 Low / High.
   - Deep penetration: +20 when close reaches or exceeds the outer half of the
     relevant orange band.
-- Vol Climax Abs resistance wall: +10 for a Bearish OB-touch reversal or BSL
+- Vol Climax Abs resistance wall: +15 for a Bearish OB-touch reversal or BSL
   sweep when the setup high is within 0.05% of the most recent
   `volClimaxAbsCeiling`, provided that ceiling was established within 10 bars.
 - TEMA trend confluence: +15 for a Bullish label when the smooth chart-timeframe
@@ -210,15 +221,24 @@ AI confluence weights:
   above 1.8x its 20-bar SMA with Delta below -12% is heavy selling; Delta above
   +12% is heavy buying. Either contributes +30 and imposes a 75% minimum final
   score, capped at 99%. The top panel reports the matching momentum direction.
-- A live micro-variation term, `deltaPercent * 0.15 * RVOL`, is included on
-  every bar (using 1.0 when RVOL is unavailable). This prevents static
-  historical-ratio scores during consolidation while preserving the 0-99 clamp
-  and the extreme-pressure floor.
+- When a reversal setup is active, AI2 compact-code confluence is folded into
+  the UDF-derived score shift: `WW` or `WH` adds +30 and enforces the same 75%
+  floor; `AH` adds +15; `AM` and `RM` add +5; `AL` and `RL` subtract 10.
+  Other code combinations add no separate confluence.
+- AI2 calculates a raw-volume `RVOL = volume / SMA(volume, whaleLength)` and
+  applies the signed micro-variation `deltaPercent * 0.15 * RVOL` on every
+  bar. This prevents static historical-ratio scores during consolidation while
+  preserving the 0-99 clamp and extreme-pressure floor.
 
-The final aggregate is:
-`base + volume + Delta + SMT + TEMA trend + trap + corridor depth + absorption
-ceiling + CVD divergence + live chop lean + extreme momentum + micro volume
-Delta shift`, clamped to the 0-99 range.
+The confluence subtotal supplies the base change for the candle matrix. The
+final aggregate advances sequentially on every bar:
+`nz(aiScore[1], reversal baseline) + UDF-aligned score change + signed micro
+volume Delta shift`, clamped to the 0-99 range. Thus an R1 top-rejection score
+directly reduces `aiScore` rather than being bypassed by a detached weight.
+
+When the clamped score reaches 85% or higher, `maximumAiProbability` is set
+and the H4 panel uses `🔥 MAKSIMALI AI TIKIMYBĖ`. A confirmed bar at or above
+that threshold also triggers the `Maximum AI reversal probability` alert.
 
 8. HIGH-VOLUME CLASSIFICATION AND REVERSAL LABELS
 -------------------------------------------------
@@ -321,7 +341,7 @@ Chart legend:
 --------------------------------
 
 - `CM TEMA Length` defaults to 20, `CM Color Smoothing Shift` defaults to 2,
-  and `Consolidation ATR Sensitivity Multiplier` defaults to 0.20.
+  and `Consolidation ATR Sensitivity Multiplier` defaults to 0.15.
 - The line uses the CM-style TEMA formula
   `3 * (EMA1 - EMA2) + EMA3` directly on the chart timeframe, so it remains
   smooth and aligned with the price candles.
@@ -335,13 +355,49 @@ Chart legend:
   +12% is `ACCUMULATING BULL`; Delta below -12% is `DISTRIBUTING BEAR`;
   otherwise it is `PURE NEUTRAL`. The dashboard appends the applicable
   `BIAS: 🟡 CONSOLIDATION (...)` text in its Signal / Bias cell.
-- There is no historical bias-error rendering. A plain score-change stream
-  prints the rounded difference between each reversal probability and its
-  immediately previous value at the TEMA coordinate for every confirmed bar.
-  Positive shifts use `+`, negative shifts use `-`, and unchanged values use
-  `0`; all text is normal-size white. Labels have no text wrapper, border, or
-  background; the newest 250 score labels are retained to respect TradingView's
-  chart-label limit and preserve other indicator labels.
+- In `Last Candle Volume Info_AI2.pine`, the unified
+  `f_getSynchronizedScoreChange(isWhaleBuy, isWhaleSell, baseScore, vMult)`
+  function calculates every historical and live score shift. `baseScore` is
+  the change in the aggregate score before its AI2 micro-volume adjustment;
+  `vMult` is RVOL times the configurable `volSensitivity` input.
+- AI2 RVOL is `volume / SMA(volume, whaleLength)`, where `whaleLength`
+  defaults to 20 and `volSensitivity` defaults to 1.0. Low-volume structural
+  scores are correspondingly reduced, while Whale overrides use a minimum
+  multiplier of 1.0.
+- Score labels use a compact two-character matrix code: first character
+  `W` for Whale override or distribution wall, `A` for absorption/rejection,
+  or `R` for regular continuation/mute; second character is RVOL tier:
+  `W` (>= 2.0), `H` (>= 1.5), `M` (>= 0.85), or `L` (< 0.85).
+- Whale Buy and Whale Sell signals have absolute precedence after the
+  distribution-wall check: both use the `W` family, with scores of
+  `+15 * max(1.0, vMult)` and `-15 * max(1.0, vMult)`, respectively.
+- The Whale Distribution Wall is also in the `W` family. It requires an H4
+  upper-corridor touch or active Bearish OB overlap, Delta above +12%, a close
+  in the lower half of the range, and an upper wick larger than the body. It
+  produces `-20 * RVOL` before other Whale handling.
+- Without a Whale signal, a Green candle with an upper wick greater than 1.2x
+  its body and 40% of its range is in the `A` family, with `-10 * vMult`.
+  Other Green candles are in the `R` family: a negative base score is muted
+  to zero, otherwise the
+  positive base score (or +5 baseline) is scaled by `vMult`.
+- Without a Whale signal, a Red candle with a lower wick greater than 1.5x its
+  body is in the `A` family, with `+10 * vMult`. Other Red candles are in the
+  `R` family: positive base
+  scores are inverted and scaled; zero uses `-5 * vMult`; existing negative
+  scores are scaled negative.
+- Every confirmed bar prints one normal-size white UDF score delta at the TEMA
+  coordinate. The unclosed last bar uses one temporary `dynamicLiveAI` label.
+  That label is deleted when the bar confirms, preventing a duplicate with the
+  newly committed historical label.
+- Each AI2 score label has two lines by default: its signed rounded score and
+  the two-character matrix code. Once KNN has five resolved neighbors on an
+  eligible new sweep-reversal event, an optional third line displays
+  `AI: NN%`. No descriptive audit text or RVOL suffix is rendered.
+- Specialized Bullish and Bearish probability labels use the primary
+  probability format: calculated probability plus `STRONG` / `HIGH VOL` /
+  `WEAK`, optional `AI: NN%` KNN confidence, then directional estimated Buy
+  or Sell USDT volume. The generic score label remains responsible for the
+  compact score/code format.
 
 12. KNN CONFIDENCE SCORE (AI INDICATOR ONLY)
 --------------------------------------------
@@ -356,7 +412,9 @@ Chart legend:
 - The memory retains at most 200 complete samples. Prediction uses Euclidean
   distance over the five nearest resolved samples.
 - `aiConfidenceScore` is available only once five resolved feature-complete
-  samples exist. When available, reversal labels append `AI: NN%`.
+  samples exist. When available, the generic compact score label appends
+  `AI: NN%` after its code, while primary reversal labels use it as the
+  middle line between probability/strength and directional volume.
 - KNN confidence is informational: it does not alter Reversal Probability,
   classification, targets, colors, or alerts.
 
@@ -373,3 +431,15 @@ Chart legend:
 
 `absorptionSmaLength` and `absorptionVolumeMultiplier` remain exposed settings
 but do not currently feed a separate signal, filter, or trigger.
+
+14. AI2 RETROSPECTIVE PATTERNS AND SCORE DISPLAY
+------------------------------------------------
+
+- `AI2` evaluates Bull Breakout and Bear Trap patterns retrospectively: bar
+  `[1]` supplies the setup and the current bar validates follow-through.
+- Confirmed Bull Breakouts render a teal up triangle; confirmed Bear Traps
+  render a fuchsia down triangle. The live confirmation preview is compact:
+  `[AI 🟢]` or `[AI 🔴]`.
+- The AI2 score display passes active Whale Buy/Sell conditions to the unified
+  score-change function. Retrospective pattern triggers still render their
+  teal/fuchsia icons but do not override the RVOL score matrix.
