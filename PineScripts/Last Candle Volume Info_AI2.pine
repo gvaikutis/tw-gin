@@ -111,6 +111,8 @@ type BearishOrderBlock
     box boxRef
     label labelRef
 
+var int longSqueezeLiquidationBar = na
+
 f_evaluateCandleAnatomy() =>
     float cRange = high - low
     float cBody = math.abs(close - open)
@@ -123,6 +125,78 @@ f_evaluateCandleAnatomy() =>
     bool isGreen = close >= open
     bool isRed = close < open
     [cRange, cBody, upperWick, lowerWick, bodyPct, upperWickPct, lowerWickPct, closePosPct, isGreen, isRed]
+
+f_getMarketStructureSignal(bool bearishBos, bool bearishChoch, bool bullishChoch, bool internalBullishChoch, bool internalBearishChoch, bool freshBullishOrderBlock, bool freshBearishOrderBlock, bool bullishObTest, bool bearishObTest, bool bullishObInvalidated, bool bearishObInvalidated, bool institutionalVolumeSpike, bool heavySellingPressure, bool isGreenCandle, bool isRedCandle, float bodyPercent, float currentDeltaVol, float currentVolume, float averageVolume) =>
+    bool hasVolumeAverage = not na(averageVolume) and averageVolume > 0
+    bool lowVolume = hasVolumeAverage and currentVolume < averageVolume
+    bool institutionalBullishOb = freshBullishOrderBlock and institutionalVolumeSpike and currentDeltaVol > 0 and not bullishObInvalidated
+    bool institutionalBearishOb = freshBearishOrderBlock and institutionalVolumeSpike and currentDeltaVol < 0 and not bearishObInvalidated
+    bool institutionalCrashProfile = heavySellingPressure and isRedCandle and bodyPercent >= 50.0
+    bool buyStrong = bullishChoch and institutionalBullishOb
+    bool buyMedium = internalBullishChoch or (bullishObTest and currentDeltaVol > 0 and not bullishObInvalidated)
+    bool buyWeak = isGreenCandle and lowVolume and bodyPercent < 50.0
+    bool sellStrong = ((bearishBos or bearishChoch) and institutionalBearishOb and heavySellingPressure) or institutionalCrashProfile
+    bool sellMedium = internalBearishChoch or (bearishObTest and currentDeltaVol < 0 and not bearishObInvalidated) or bullishObInvalidated
+    bool sellWeak = isRedCandle and lowVolume and bodyPercent < 50.0
+    string marketStructureSignal = "NEUTRAL"
+    if sellStrong
+        marketStructureSignal := "SELL_STRONG"
+    else if buyStrong
+        marketStructureSignal := "BUY_STRONG"
+    else if sellMedium
+        marketStructureSignal := "SELL_MEDIUM"
+    else if buyMedium
+        marketStructureSignal := "BUY_MEDIUM"
+    else if sellWeak
+        marketStructureSignal := "SELL_WEAK"
+    else if buyWeak
+        marketStructureSignal := "BUY_WEAK"
+    marketStructureSignal
+
+f_resolveSqueezeStatus(string currentSqueezeStatus, int squeezeTouchBar, bool bearishBos, bool bearishChoch, bool bullishChoch, bool internalBullishChoch, bool internalBearishChoch, bool freshBullishOrderBlock, bool freshBearishOrderBlock, bool bullishObTest, bool bearishObTest, bool bullishObInvalidated, bool bearishObInvalidated, bool institutionalVolumeSpike, bool heavySellingPressure, bool isGreenCandle, bool isRedCandle, float bodyPercent, float currentDeltaVol, float currentVolume, float averageVolume) =>
+    string marketStructureSignal = f_getMarketStructureSignal(bearishBos, bearishChoch, bullishChoch, internalBullishChoch, internalBearishChoch, freshBullishOrderBlock, freshBearishOrderBlock, bullishObTest, bearishObTest, bullishObInvalidated, bearishObInvalidated, institutionalVolumeSpike, heavySellingPressure, isGreenCandle, isRedCandle, bodyPercent, currentDeltaVol, currentVolume, averageVolume)
+    int barsAfterTouch = not na(squeezeTouchBar) ? bar_index - squeezeTouchBar : na
+    bool confirmationWindow = not na(barsAfterTouch) and barsAfterTouch >= 1 and barsAfterTouch <= 10
+    string resolvedStatus = currentSqueezeStatus
+    if currentSqueezeStatus == "PENDING_CONFIRMATION" and not na(barsAfterTouch) and barsAfterTouch > 10
+        resolvedStatus := "TIMEOUT / EXPIRED"
+    else if confirmationWindow and (marketStructureSignal == "SELL_STRONG" or heavySellingPressure)
+        resolvedStatus := "BREAKOUT_LIQUIDATION"
+    else if currentSqueezeStatus == "PENDING_CONFIRMATION" and confirmationWindow
+        if marketStructureSignal == "BUY_STRONG" or marketStructureSignal == "BUY_MEDIUM"
+            resolvedStatus := "REAL_REVERSAL"
+        else if marketStructureSignal == "SELL_MEDIUM"
+            resolvedStatus := "FAKE_REBOUND_TRAP"
+    [resolvedStatus, marketStructureSignal]
+
+f_formatDashboardSignal(string squeezeStatus, string marketStructure, string consolidationBias, string structuralLabels, int squeezeReactionBars) =>
+    bool isPendingSqueeze = squeezeStatus == "PENDING_CONFIRMATION" or squeezeStatus == "PENDING" or squeezeStatus == "⏳ LSQ: PENDING"
+    bool isRealReversal = squeezeStatus == "REAL_REVERSAL" or squeezeStatus == "🔥 LSQ: REVERSAL"
+    bool isFakeTrap = squeezeStatus == "FAKE_REBOUND_TRAP" or squeezeStatus == "⚠️ LSQ: FAKE"
+    bool isBreakoutLiquidation = squeezeStatus == "BREAKOUT_LIQUIDATION" or squeezeStatus == "❌ LSQ: BREAKOUT"
+    bool isExpiredSqueeze = squeezeStatus == "TIMEOUT / EXPIRED" or squeezeStatus == "⌛ LSQ: EXPIRED"
+    bool hasMarketStructure = marketStructure != "" and marketStructure != "NEUTRAL"
+    bool hasStructuralLabels = structuralLabels != ""
+    bool hasConsolidationBias = consolidationBias != ""
+    string squeezeSignal = ""
+    if isPendingSqueeze
+        squeezeSignal := str.format("⏳ LSQ: PENDING (Bar {0}/10)", squeezeReactionBars)
+    else if isRealReversal
+        squeezeSignal := "🔥 LSQ: REVERSAL"
+    else if isFakeTrap
+        squeezeSignal := "⚠️ LSQ: FAKE"
+    else if isBreakoutLiquidation
+        squeezeSignal := "❌ LSQ: BREAKOUT"
+    else if isExpiredSqueeze
+        squeezeSignal := "⌛ LSQ: EXPIRED"
+    string finalSignal = squeezeSignal
+    if hasStructuralLabels and structuralLabels != squeezeSignal
+        finalSignal := finalSignal == "" ? structuralLabels : finalSignal + " | " + structuralLabels
+    if hasMarketStructure and marketStructure != squeezeSignal and marketStructure != structuralLabels
+        finalSignal := finalSignal == "" ? marketStructure : finalSignal + " | " + marketStructure
+    if hasConsolidationBias and consolidationBias != squeezeSignal and consolidationBias != structuralLabels and consolidationBias != marketStructure
+        finalSignal := finalSignal == "" ? consolidationBias : finalSignal + " | " + consolidationBias
+    finalSignal == "" ? "NEUTRAL" : finalSignal
 
 var array<LiquidityZone> zones = array.new<LiquidityZone>()
 var float activeTarget = na
@@ -308,11 +382,22 @@ zonePriority(LiquidityZone zone) =>
 zoneColor(LiquidityZone zone) => zone.isBsl ? bslColor : sslColor
 
 refreshZoneStyle(LiquidityZone zone) =>
-    int lineWidth = zone.touches > 1 ? 3 : zone.highVolume ? 2 : 1
-    int transparency = zone.touches > 1 ? 0 : zone.highVolume ? 20 : 45
-    line.set_color(zone.lineRef, color.new(zoneColor(zone), transparency))
-    line.set_width(zone.lineRef, lineWidth)
+    line.set_color(zone.lineRef, color.new(zoneColor(zone), 45))
+    line.set_width(zone.lineRef, 1)
     line.set_style(zone.lineRef, zone.touches > 1 ? line.style_solid : line.style_dotted)
+
+refreshNearestLiquidityStyles(int nearestBslIndex, int nearestSslIndex) =>
+    int activeZoneCount = array.size(zones)
+    if activeZoneCount > 0
+        for zoneIndex = 0 to activeZoneCount - 1
+            LiquidityZone zone = array.get(zones, zoneIndex)
+            if zone.active
+                bool isNearestBsl = not na(nearestBslIndex) and zoneIndex == nearestBslIndex
+                bool isNearestSsl = not na(nearestSslIndex) and zoneIndex == nearestSslIndex
+                bool isNearest = isNearestBsl or isNearestSsl
+                line.set_color(zone.lineRef, color.new(zoneColor(zone), isNearest ? 0 : 45))
+                line.set_width(zone.lineRef, isNearest ? 3 : 1)
+                line.set_style(zone.lineRef, isNearest or zone.touches > 1 ? line.style_solid : line.style_dotted)
 
 addOrStrengthenZone(float pivotPrice, bool isBsl, bool pivotHighVolume) =>
     bool matched = false
@@ -328,7 +413,7 @@ addOrStrengthenZone(float pivotPrice, bool isBsl, bool pivotHighVolume) =>
                 break
     if not matched
         color newZoneColor = isBsl ? bslColor : sslColor
-        line newLine = line.new(bar_index - rightBars, pivotPrice, bar_index, pivotPrice, xloc=xloc.bar_index, extend=extend.right, color=color.new(newZoneColor, pivotHighVolume ? 20 : 45), width=pivotHighVolume ? 2 : 1, style=line.style_dotted)
+        line newLine = line.new(bar_index - rightBars, pivotPrice, bar_index, pivotPrice, xloc=xloc.bar_index, extend=extend.right, color=color.new(newZoneColor, 45), width=1, style=line.style_dotted)
         array.push(zones, LiquidityZone.new(pivotPrice, isBsl, 1, pivotHighVolume, true, newLine))
     if array.size(zones) > maxZones
         LiquidityZone oldestZone = array.shift(zones)
@@ -768,9 +853,33 @@ if targetExpired
     targetOriginSignal := ""
     targetTracksSweepOutcome := false
 
+float nearestActiveBsl = na
+float nearestActiveSsl = na
+float nearestBslDistance = na
+float nearestSslDistance = na
+int nearestBslIndex = na
+int nearestSslIndex = na
+int zoneCount = array.size(zones)
+if zoneCount > 0
+    for zoneIndex = 0 to zoneCount - 1
+        LiquidityZone zone = array.get(zones, zoneIndex)
+        if zone.active and zone.isBsl and zone.level > close
+            float bslDistance = zone.level - close
+            if na(nearestBslDistance) or bslDistance < nearestBslDistance
+                nearestActiveBsl := zone.level
+                nearestBslDistance := bslDistance
+                nearestBslIndex := zoneIndex
+        if zone.active and not zone.isBsl and zone.level < close
+            float sslDistance = close - zone.level
+            if na(nearestSslDistance) or sslDistance < nearestSslDistance
+                nearestActiveSsl := zone.level
+                nearestSslDistance := sslDistance
+                nearestSslIndex := zoneIndex
+
+refreshNearestLiquidityStyles(nearestBslIndex, nearestSslIndex)
+
 bool bslSwept = false
 bool sslSwept = false
-int zoneCount = array.size(zones)
 if zoneCount > 0
     for zoneIndex = 0 to zoneCount - 1
         LiquidityZone zone = array.get(zones, zoneIndex)
@@ -801,25 +910,37 @@ bool isShortSqueezeCompleted = bslSweepOccurredWithin3Bars and not na(squeezeVol
 bool isLongSqueezeCompleted = sslSweepOccurredWithin3Bars and not na(squeezeVolumeSma50) and totalVolumeUsdt >= squeezeVolumeSma50 * 1.15 and lowerWickPct >= 35.0 and closePosPct >= 45.0 and (deltaVol > 0 or deltaPercent > -5.0)
 var line activeShortSqueezeLine = na
 var line activeLongSqueezeLine = na
+var label activeLongSqueezeLabel = na
+var int longSqueezeActivationBar = na
+var float longSqueezeMinorHigh = na
+var string squeezeStatus = "PENDING_CONFIRMATION"
+var string squeezeStructureSignal = "NEUTRAL"
 if barstate.isconfirmed and isShortSqueezeCompleted
     line.delete(activeShortSqueezeLine)
     activeShortSqueezeLine := line.new(bar_index, high, bar_index + 30, high, xloc=xloc.bar_index, extend=extend.right, color=#ff007f, width=4, style=line.style_solid)
-    label.new(bar_index, high, "⚠️ SHORT SQUEEZE", yloc=yloc.abovebar, style=label.style_label_down, color=color.new(#ff007f, 10), textcolor=color.white, size=size.normal)
-if barstate.isconfirmed and isLongSqueezeCompleted
+    label.new(bar_index, high, "⚠️ SSQ: PURGE\nB: $" + compactUsdt(buyVolumeUsdt) + "\nS: $" + compactUsdt(sellVolumeUsdt), yloc=yloc.abovebar, style=label.style_label_down, color=color.new(#ff007f, 10), textcolor=color.white, size=size.tiny)
+bool newLongSqueeze = barstate.isconfirmed and isLongSqueezeCompleted and not isLongSqueezeCompleted[1]
+if newLongSqueeze
     line.delete(activeLongSqueezeLine)
+    label.delete(activeLongSqueezeLabel)
     activeLongSqueezeLine := line.new(bar_index, low, bar_index + 30, low, xloc=xloc.bar_index, extend=extend.right, color=#00f5ff, width=4, style=line.style_solid)
-    label.new(bar_index, low, "⚡ LONG SQUEEZE", yloc=yloc.belowbar, style=label.style_label_up, color=color.new(#00f5ff, 10), textcolor=color.white, size=size.normal)
+    activeLongSqueezeLabel := label.new(bar_index, low, "⏳ LSQ: PENDING (Bar 0/10)", yloc=yloc.price, style=label.style_label_up, color=color.new(#00f5ff, 10), textcolor=color.white, size=size.tiny)
+    longSqueezeActivationBar := bar_index
+    longSqueezeMinorHigh := lastMinorHigh
+    longSqueezeLiquidationBar := na
+    squeezeStatus := "PENDING_CONFIRMATION"
+    squeezeStructureSignal := "NEUTRAL"
+
 plotshape(isShortSqueezeCompleted and barstate.isconfirmed, title="Short Squeeze Square", style=shape.square, location=location.abovebar, color=#ff007f, size=size.normal)
 plotshape(isLongSqueezeCompleted and barstate.isconfirmed, title="Long Squeeze Square", style=shape.square, location=location.belowbar, color=#00f5ff, size=size.normal)
 bgcolor(isShortSqueezeCompleted ? color.new(#ff007f, 85) : na, title="Short Squeeze Column")
 bgcolor(isLongSqueezeCompleted ? color.new(#00f5ff, 85) : na, title="Long Squeeze Column")
 float bearLevelPrice = not na(activeShortSqueezeLine) ? line.get_y1(activeShortSqueezeLine) : na
-float bullLevelPrice = not na(activeLongSqueezeLine) ? line.get_y1(activeLongSqueezeLine) : na
+float bullLevelPrice = not na(activeLongSqueezeLine) and squeezeStatus != "BREAKOUT_LIQUIDATION" and squeezeStatus != "TIMEOUT / EXPIRED" ? line.get_y1(activeLongSqueezeLine) : na
 float distanceToBearPct = not na(bearLevelPrice) and close != 0 ? (bearLevelPrice - close) / close * 100.0 : na
 float distanceToBullPct = not na(bullLevelPrice) and close != 0 ? (close - bullLevelPrice) / close * 100.0 : na
 string bearDistStr = not na(distanceToBearPct) ? "BEAR: +" + str.tostring(distanceToBearPct, "#.##") + "%" : "BEAR: NONE"
 string bullDistStr = not na(distanceToBullPct) ? "BULL: -" + str.tostring(distanceToBullPct, "#.##") + "%" : "BULL: NONE"
-string compactSqueezeMsg = isShortSqueezeCompleted ? "SSQ" : isLongSqueezeCompleted ? "LSQ" : ""
 bool bullishInstitutionalSweepEvent = showInstitutionalVolumeMarkers and institutionalVolumeSpike and sslSwept and deltaPercent > 0
 bool recentBullishInstitutionalSweep = ta.barssince(bullishInstitutionalSweepEvent) <= internalStructureWindow
 bool internalBullishChoch = useInternalStructureSignals and bullishChoch and (recentSslSweep or recentBullishInstitutionalSweep)
@@ -992,6 +1113,56 @@ bool exhaustionReversalSetup = (bullishExhaustionSetup or bearishExhaustionSetup
 bool bearishBos = not na(lastStructuralLow) and close < lastStructuralLow and close[1] >= lastStructuralLow
 bool isBearBreakTrap = (bearishBos or bearishChoch) and buyVolume > sellVolume * 1.5
 bool isBullAbs = internalBullishChoch and sellVolume > buyVolume * 1.5
+
+bool freshBullishOrderBlock = not na(pivotLow)
+bool freshBearishOrderBlock = not na(pivotHigh)
+float structureVolumeSma20 = ta.sma(volume, 20)
+int squeezeReactionBars = not na(longSqueezeActivationBar) ? bar_index - longSqueezeActivationBar : na
+if barstate.isconfirmed and not na(activeLongSqueezeLine)
+    if squeezeStatus == "PENDING_CONFIRMATION"
+        label.set_text(activeLongSqueezeLabel, str.format("⏳ LSQ: PENDING (Bar {0}/10)", squeezeReactionBars))
+    [resolvedSqueezeStatus, resolvedStructureSignal] = f_resolveSqueezeStatus(squeezeStatus, longSqueezeActivationBar, bearishBos, bearishChoch, bullishChoch, internalBullishChoch, internalBearishChoch, freshBullishOrderBlock, freshBearishOrderBlock, bullishObTouchReversalSetup, bearishObTouchReversalSetup, bullObInvalidatedThisBar, bearObInvalidatedThisBar, institutionalVolumeSpike, heavySellingPressure, isGreen, isRed, bodyPct, deltaVol, volume, structureVolumeSma20)
+    squeezeStructureSignal := resolvedStructureSignal
+    if resolvedSqueezeStatus != squeezeStatus
+        squeezeStatus := resolvedSqueezeStatus
+        if squeezeStatus == "REAL_REVERSAL"
+            line.set_extend(activeLongSqueezeLine, extend.right)
+            line.set_color(activeLongSqueezeLine, #00f5ff)
+            line.set_style(activeLongSqueezeLine, line.style_solid)
+            line.set_width(activeLongSqueezeLine, 4)
+            label.set_text(activeLongSqueezeLabel, "🔥 LSQ: REVERSAL\nB: $" + compactUsdt(buyVolumeUsdt) + "\nS: $" + compactUsdt(sellVolumeUsdt))
+            label.set_color(activeLongSqueezeLabel, color.teal)
+            label.set_textcolor(activeLongSqueezeLabel, color.white)
+        else if squeezeStatus == "FAKE_REBOUND_TRAP"
+            line.set_extend(activeLongSqueezeLine, extend.right)
+            line.set_color(activeLongSqueezeLine, color.red)
+            line.set_style(activeLongSqueezeLine, line.style_dashed)
+            line.set_width(activeLongSqueezeLine, 3)
+            label.set_text(activeLongSqueezeLabel, "⚠️ LSQ: FAKE")
+            label.set_color(activeLongSqueezeLabel, color.orange)
+            label.set_textcolor(activeLongSqueezeLabel, color.black)
+        else if squeezeStatus == "BREAKOUT_LIQUIDATION"
+            longSqueezeLiquidationBar := bar_index
+            line.set_extend(activeLongSqueezeLine, extend.none)
+            line.set_x2(activeLongSqueezeLine, bar_index)
+            line.set_color(activeLongSqueezeLine, color.red)
+            line.set_style(activeLongSqueezeLine, line.style_dashed)
+            line.set_width(activeLongSqueezeLine, 3)
+            label.set_yloc(activeLongSqueezeLabel, yloc.price)
+            label.set_y(activeLongSqueezeLabel, line.get_y1(activeLongSqueezeLine))
+            label.set_text(activeLongSqueezeLabel, "❌ LSQ: BREAKOUT\nB: $" + compactUsdt(buyVolumeUsdt) + "\nS: $" + compactUsdt(sellVolumeUsdt))
+            label.set_color(activeLongSqueezeLabel, color.new(color.red, 30))
+            label.set_textcolor(activeLongSqueezeLabel, color.white)
+        else if squeezeStatus == "TIMEOUT / EXPIRED"
+            line.set_extend(activeLongSqueezeLine, extend.none)
+            line.set_x2(activeLongSqueezeLine, bar_index)
+            line.set_color(activeLongSqueezeLine, color.gray)
+            line.set_style(activeLongSqueezeLine, line.style_dashed)
+            line.set_width(activeLongSqueezeLine, 1)
+            label.set_text(activeLongSqueezeLabel, "⌛ LSQ: EXPIRED")
+            label.set_color(activeLongSqueezeLabel, color.gray)
+            label.set_textcolor(activeLongSqueezeLabel, color.white)
+
 
 float h4High = htfHigh
 float h4Low = htfLow
@@ -1674,14 +1845,11 @@ if barstate.islast or barstate.islastconfirmedhistory
         bool absorptionBuy = hasCandle and isRedCandle and candleDelta > 0 and candleCmf < 0.02 and buyRatio[candleIndex] <= 0.40 and isVolumeClimax[candleIndex]
         bool absorptionSell = hasCandle and isGreenCandle and candleDelta < 0 and candleCmf > -0.02 and buyRatio[candleIndex] >= 0.60 and isVolumeClimax[candleIndex]
         string liquiditySignal = hasCandle ? barSignal[candleIndex] : ""
-        string candleCompactSqueezeMsg = hasCandle ? compactSqueezeMsg[candleIndex] : ""
         bool candleBearObTarget = candleIndex == 0 and liquiditySignal == "BEAR TARGET: OB" and not candlePotentialReversal and not candlePotentialBearishReversal
         string candleExhStatus = hasCandle ? exhDashboardStatus[candleIndex] : ""
         string internalStructureText = candleInternalBullishChoch ? "LTF BULL CHoCH" : candleInternalBearishChoch ? "LTF BEAR CHoCH" : ""
         bool liveWhaleBuyRecovery = candleIndex == 0 and (freshWhaleBuyAgainstBearTarget or whaleBuyRecoveryActive)
         bool liveWhaleSellRecovery = candleIndex == 0 and (freshWhaleSellAgainstBullTarget or whaleSellRecoveryActive)
-        string whaleBuyText = whaleBuy ? "WHALE BUY 🐋" : ""
-        string signalText = candlePotentialBearishReversal ? "🔄 BEARISH REVERSAL (Prob: " + str.tostring(candleReversalProbability, "#.##") + "%)" + (internalStructureText != "" ? " | " + internalStructureText : "") : candlePotentialReversal ? "🔄 REVERSAL ALIGNMENT (Prob: " + str.tostring(candleReversalProbability, "#.##") + "%)" + (internalStructureText != "" ? " | " + internalStructureText : "") : candleSellSideBiasLocked ? "SELL-SIDE BIAS / BEAR OB CAP" : candleCompactSqueezeMsg != "" ? candleCompactSqueezeMsg : liquiditySignal != "" ? liquiditySignal : internalStructureText != "" ? internalStructureText + " -> EARLY ENTRY" : whaleBuy ? whaleBuyText : whaleSell ? "WHALE SELL" : bullishObTestingWaiting ? "🐂 BULL OB TEST / AWAITING DELTA" : bearishObTestingWaiting ? "🐻 BEAR OB TEST / AWAITING DELTA" : candleInstitutionalVolumeSpike ? "INSTITUTIONAL VOLUME SPIKE" : absorptionBuy ? "AbBuyV" : absorptionSell ? "AbSellV" : ""
         string lockedTargetSignal = ""
         int lockedTargetCount = array.size(lockedTargetBars)
         if lockedTargetCount > 0
@@ -1698,44 +1866,17 @@ if barstate.islast or barstate.islastconfirmedhistory
         bool isTargetCancelledRow = candleBar == cancelledOriginBar
         bool isTargetSupersededRow = supersededTargetOutcome != ""
         bool isObReachedRow = candleBar == obReachedOriginBar
-        if not candlePotentialReversal and not candlePotentialBearishReversal
-            if isTargetHitRow
-                signalText := lockedTargetSignal + " -> TARGET HIT -> LOCKED"
-            if isTargetCancelledRow
-                signalText := "REVERSAL / TGT CANCELLED"
-            if isTargetSupersededRow
-                signalText := supersededTargetOutcome
-            if isObReachedRow
-                signalText := "OB REACHED -> WAITING FOR CONFIRMATION"
-        if candleBullishCvdDiv or candleBearishCvdDiv
-            string cvdDivTag = candleBullishCvdDiv ? "BULL DIV" : "BEAR DIV"
-            signalText := signalText == "" ? cvdDivTag : signalText + " | " + cvdDivTag
-        if candleNoDemandBearishReversal
-            signalText := signalText == "" ? "NO DEMAND" : signalText + " | NO DEMAND"
-        if candleExhStatus != "" and not candlePotentialReversal and not candlePotentialBearishReversal
-            signalText := candleExhStatus
-        if candleMidRangeContext != ""
-            signalText := signalText == "" ? candleMidRangeContext : signalText + " | " + candleMidRangeContext
-        if candleChopLeanText != ""
-            signalText := signalText == "" ? candleChopLeanText : signalText + " | " + candleChopLeanText
         bool candleBtcDivergenceBearish = hasCandle and btc_divergence_bearish[candleIndex]
         bool candleBtcDivergenceBullish = hasCandle and btc_divergence_bullish[candleIndex]
         string btcContextText = ""
         if not suppress_smt_context
             btcContextText := candleBtcDivergenceBearish ? "⚠️ ALT WEAK (BTC RISING)" : candleBtcDivergenceBullish ? "🚀 ALT STRONG (BTC FALLING)" : ""
-        if btcContextText != ""
-            signalText := signalText == "" ? btcContextText : signalText + " | " + btcContextText
-        if not candlePotentialReversal and not candlePotentialBearishReversal
-            if whaleBuy
-                signalText := "WHALE BUY 🐋"
-            else if whaleSell
-                signalText := "WHALE SELL 🐋"
-            else if liveWhaleBuyRecovery
-                signalText := "WHALE BUY | ACCUMULATION"
-            else if liveWhaleSellRecovery
-                signalText := "WHALE SELL | DISTRIBUTION"
-        if candleBearObTarget
-            signalText := "BEAR TARGET: OB"
+        bool isLongSqueezeLiquidationRow = candleBar == longSqueezeLiquidationBar
+        string structuralLabels = isLongSqueezeLiquidationRow ? "❌ LSQ: BREAKOUT" : isTargetHitRow ? str.format("{0} -> TARGET HIT -> LOCKED", lockedTargetSignal) : isTargetCancelledRow ? "REVERSAL / TGT CANCELLED" : isTargetSupersededRow ? supersededTargetOutcome : isObReachedRow ? "OB REACHED -> WAITING FOR CONFIRMATION" : candlePotentialBearishReversal ? str.format("🔄 BEARISH REVERSAL (Prob: {0}%)", str.tostring(candleReversalProbability, "#.##")) : candlePotentialReversal ? str.format("🔄 REVERSAL ALIGNMENT (Prob: {0}%)", str.tostring(candleReversalProbability, "#.##")) : candleSellSideBiasLocked ? "SELL-SIDE BIAS / BEAR OB CAP" : candleBearObTarget ? "BEAR TARGET: OB" : internalStructureText != "" ? internalStructureText : liquiditySignal != "" ? liquiditySignal : candleExhStatus != "" ? candleExhStatus : whaleBuy ? "WHALE BUY 🐋" : whaleSell ? "WHALE SELL 🐋" : liveWhaleBuyRecovery ? "WHALE BUY | ACCUMULATION" : liveWhaleSellRecovery ? "WHALE SELL | DISTRIBUTION" : bullishObTestingWaiting ? "🐂 BULL OB TEST / AWAITING DELTA" : bearishObTestingWaiting ? "🐻 BEAR OB TEST / AWAITING DELTA" : candleInstitutionalVolumeSpike ? "INSTITUTIONAL VOLUME SPIKE" : absorptionBuy ? "AbBuyV" : absorptionSell ? "AbSellV" : candleBullishCvdDiv ? "BULL DIV" : candleBearishCvdDiv ? "BEAR DIV" : candleNoDemandBearishReversal ? "NO DEMAND" : candleMidRangeContext != "" ? candleMidRangeContext : btcContextText
+        string candleSqueezeState = candleIndex == 0 and not na(activeLongSqueezeLine) ? squeezeStatus : ""
+        string candleMarketStructure = candleIndex == 0 and not na(activeLongSqueezeLine) ? squeezeStructureSignal : "NEUTRAL"
+        int candleSqueezeReactionBars = candleIndex == 0 and not na(squeezeReactionBars) ? squeezeReactionBars : 0
+        string signalText = f_formatDashboardSignal(candleSqueezeState, candleMarketStructure, candleChopLeanText, structuralLabels, candleSqueezeReactionBars)
         if candleIndex == 0
             wheelDashboardState := str.contains(signalText, "WHALE BUY") ? "BUY" : str.contains(signalText, "WHALE SELL") ? "SELL" : "NONE"
         color deltaColor = candleDelta >= 0 ? bslColor : tableSellColor
@@ -1746,9 +1887,14 @@ if barstate.islast or barstate.islastconfirmedhistory
         bool bullishSignal = str.contains(signalText, "BULLISH MOMENTUM") or str.contains(signalText, "UPSIDE BIAS") or str.contains(signalText, "BULL TARGET") or str.contains(signalText, "WHALE BUY")
         bool bearishSignal = str.contains(signalText, "BEAR TARGET") or str.contains(signalText, "CONTINUATION DOWN") or str.contains(signalText, "WHALE SELL")
         bool isShortSqueezeSignal = str.contains(signalText, "SSQ")
-        bool isLongSqueezeSignal = str.contains(signalText, "LSQ")
-        color signalBackground = candlePotentialBearishReversal ? color.new(color.orange, 40) : candlePotentialReversal ? color.new(color.teal, 50) : isTargetHitRow ? color.new(color.blue, 20) : isTargetCancelledRow ? color.new(color.orange, 20) : isTargetSupersededRow ? color.rgb(45, 48, 52) : isObReachedRow ? color.new(bslColor, 35) : isShortSqueezeSignal ? color.new(#ff007f, 65) : isLongSqueezeSignal ? color.new(#00f5ff, 65) : bullishObTestingWaiting ? color.new(color.teal, 65) : bearishObTestingWaiting ? color.new(color.orange, 65) : bullishReversal ? color.new(#00e676, 72) : bearishReversal ? color.new(color.red, 85) : signalText == "" ? color.new(color.black, 25) : bullishSignal ? color.new(#00e676, 72) : bearishSignal ? color.new(color.red, 85) : color.new(color.black, 25)
-        color signalTextColor = isShortSqueezeSignal ? #ff007f : isLongSqueezeSignal ? #00f5ff : chart.fg_color
+        bool isLongSqueezeLiquidationSignal = str.contains(signalText, "❌ LSQ: BREAKOUT")
+        bool isLongSqueezeRealReversalSignal = str.contains(signalText, "🔥 LSQ: REVERSAL")
+        bool isLongSqueezePendingSignal = str.contains(signalText, "⏳ LSQ: PENDING")
+        bool isLongSqueezeTrapSignal = str.contains(signalText, "⚠️ LSQ: FAKE")
+        bool isLongSqueezeTimeoutSignal = str.contains(signalText, "⌛ LSQ: EXPIRED")
+        bool isLongSqueezeSignal = str.contains(signalText, "LSQ:")
+        color signalBackground = isLongSqueezeLiquidationSignal ? color.new(color.red, 75) : isLongSqueezeRealReversalSignal ? color.new(color.teal, 65) : isLongSqueezePendingSignal ? color.new(#00f5ff, 82) : isLongSqueezeTrapSignal ? color.new(color.orange, 65) : isLongSqueezeTimeoutSignal ? color.new(color.gray, 75) : isTargetHitRow ? color.new(color.blue, 20) : isTargetCancelledRow ? color.new(color.orange, 20) : isTargetSupersededRow ? color.rgb(45, 48, 52) : isObReachedRow ? color.new(bslColor, 35) : isShortSqueezeSignal ? color.new(#ff007f, 65) : isLongSqueezeSignal ? color.new(#00f5ff, 65) : bullishObTestingWaiting ? color.new(color.teal, 65) : bearishObTestingWaiting ? color.new(color.orange, 65) : bullishReversal ? color.new(#00e676, 72) : bearishReversal ? color.new(color.red, 85) : signalText == "NEUTRAL" ? color.new(color.black, 25) : bullishSignal ? color.new(#00e676, 72) : bearishSignal ? color.new(color.red, 85) : color.new(color.black, 25)
+        color signalTextColor = isLongSqueezeLiquidationSignal or isLongSqueezeRealReversalSignal or isLongSqueezeTimeoutSignal ? color.white : isLongSqueezePendingSignal ? #00f5ff : isLongSqueezeTrapSignal ? color.black : isShortSqueezeSignal ? #ff007f : isLongSqueezeSignal ? #00f5ff : chart.fg_color
         string buyText = hasCandle ? "$" + compactUsdt(candleBuy) : "-"
         string sellText = hasCandle ? "$" + compactUsdt(candleSell) : "-"
         string totalText = hasCandle ? "$" + compactUsdt(candleTotal) : "-"

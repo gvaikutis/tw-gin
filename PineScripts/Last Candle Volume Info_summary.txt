@@ -21,7 +21,9 @@ values are estimated volume multiplied by the chart close.
   pivots. High volume is determined from the pivot-bar USDT volume versus the
   configured volume SMA and multiplier.
 - Active BSL levels are mint/teal and active SSL levels are crimson/pink. They
-  extend right. Stronger levels are thicker and more opaque.
+  extend right. The nearest active BSL above price and nearest active SSL below
+  price are solid, width-3, fully opaque lines; every deeper active level stays
+  width 1 with lower opacity.
 - A level is mitigated by the selected `Wick Sweep` or `Close Breach` rule.
   Mitigated levels become gray dashed history when `keepMitigated` is enabled;
   otherwise their line is deleted.
@@ -160,17 +162,18 @@ Completed squeeze markers:
   total USDT volume at least 1.15x its 50-bar SMA, an upper wick of at least
   35% of range, a close in the lower 55% of range, and either negative
   `deltaVol` or `deltaPercent` below 5%. It leaves a permanent neon-fuchsia
-  square, `SHORT SQUEEZE` label, fuchsia column glow, and a width-4 horizontal
+  square, a `size.tiny` three-line `⚠️ SSQ: PURGE` label with compact
+  Buy/Sell USDT volume, fuchsia column glow, and a width-4 horizontal
   line from its high extending right. Only the most recent Short Squeeze line
   is active; a new confirmed Short Squeeze deletes the prior Short Squeeze
   line. It contributes a -30 directional score shift.
 - A Long Squeeze Completed marker uses the symmetrical SSL sweep, high-volume,
   35% lower-wick, upper-55%-close, and either positive `deltaVol` or
   `deltaPercent` above -5% criteria. It leaves a permanent neon-cyan square,
-  `LONG SQUEEZE` label, cyan column glow, and a width-4 horizontal line from
-  its low extending right. Only the most recent Long Squeeze line is active; a
-  new confirmed Long Squeeze deletes the prior Long Squeeze line. It contributes
-  a +30 directional score shift.
+  a `size.tiny` price-anchored `⏳ LSQ: PENDING (Bar 0/10)` label, cyan column
+  glow, and a width-4 horizontal line from its low extending right. Only the
+  most recent Long Squeeze line is active; a new confirmed Long Squeeze deletes
+  the prior Long Squeeze line. It contributes a +30 directional score shift.
 
 Bullish exhaustion reversal, available on 4H and higher:
 - Price overlaps an active Bullish Order Block, or an SSL sweep occurred within
@@ -202,6 +205,49 @@ Bearish labels require a red close in the lower 40% and below the prior close.
 - Orange TEMA consolidation remains available as AI-score context but does not
   suppress qualifying OB-touch or exhaustion setups, their probability labels,
   or their label latches.
+
+Nearest-liquidity and Long Squeeze status tracking:
+- The nearest active BSL is the closest active pivot-high level strictly above
+  the close. The nearest active SSL is the closest active pivot-low level
+  strictly below the close. These same levels receive the emphasized liquidity
+  styling described in the Liquidity Map section.
+- `f_getMarketStructureSignal()` ranks each confirmed bar as Strong, Medium,
+  Weak, or Neutral Buy/Sell using BOS/CHoCH, fresh or invalidated Order Blocks,
+  Order Block tests, institutional volume, Delta, candle anatomy, and the
+  institutional heavy-selling crash profile.
+- `f_resolveSqueezeStatus()` consumes that structural result only during the
+  first one to ten bars following a fresh Long Squeeze. A Buy Strong or Buy
+  Medium result resolves the active line to `REAL_REVERSAL`; Sell Strong
+  resolves it to `BREAKOUT_LIQUIDATION`; Sell Medium resolves it to
+  `FAKE_REBOUND_TRAP`. A Sell Strong result or `heavySellingPressure` resolves
+  liquidation immediately regardless of close position anywhere in the ten-bar
+  window. A pending status reaching bar 11 becomes `TIMEOUT / EXPIRED`.
+- The active squeeze label and live C1 Dashboard Signal / Bias cell directly
+  read the resolved status, overriding lower-priority dashboard messages. A
+  `REAL_REVERSAL` keeps the line cyan and solid with a teal label. Both
+  `FAKE_REBOUND_TRAP` and liquidation draw a red dashed line; the former has
+  an orange label, while liquidation stops the line and uses a transparent-red
+  label. Pending labels show `⏳ LSQ: PENDING (Bar n/10)`, liquidation shows
+  `❌ LSQ: BREAKOUT` plus the breakout candle's compact Buy/Sell USDT volumes
+  on separate lines,
+  a fake rebound shows `⚠️ LSQ: FAKE`, and reversal shows
+  `🔥 LSQ: REVERSAL` plus its confirmation candle's compact Buy/Sell USDT
+  volumes on separate lines. All active Long Squeeze label states use
+  `size.tiny`. The active Long Squeeze label is price-anchored, and a breakout
+  explicitly resets it to the Long Squeeze line's price. A timeout changes the
+  line to thin gray dashed history and its label to `⌛ LSQ: EXPIRED`. No
+  standalone inducement or fake-rebound labels are emitted.
+- A Short Squeeze activation label is compact and includes the activation
+  candle's estimated directional USDT volumes:
+  `⚠️ SSQ: PURGE` followed by `B: $<buy>` and `S: $<sell>` on separate lines;
+  it uses `size.tiny`.
+- `f_formatDashboardSignal()` is the single source of text for the Dashboard
+  Signal / Bias cell. It composes active context in order: squeeze status,
+  selected structural label, market-structure verdict, then consolidation bias.
+  Non-empty unique entries are joined with ` | `, so a cell can show
+  `❌ LSQ: BREAKOUT | 🐂 BULL OB TEST / AWAITING DELTA` without duplicate text
+  or trailing separators. The function accepts both internal squeeze state
+  values and their compact display equivalents when determining the status.
 
 7. REVERSAL PROBABILITY AND AI CONFLUENCE
 -----------------------------------------
